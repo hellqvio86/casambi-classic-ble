@@ -1,0 +1,15 @@
+---
+#api_key: '<API KEY HERE>'
+#email: '<EMAIL HERE>'
+#network_password:  '<NETWORK PASSWORD HERE>'
+#user_password: '<USER PASSWORD HERE>'
+# Units to tests
+unit_id: 12
+units:
+  - 12
+email: olof.hellqvist@gmail.com
+api_key: "azRPGyhc8zQyzmcuCjvy42V6eNgAGS4BKjmUjAKkmUuZFKwzbx44rncHuzBMzPSX"
+network_password: "610261"
+user_password: "Olle@11972936"
+network_id: "mEzEthAmbxdnWwodIwgu2xI1wv2OR2S0"
+debug: true

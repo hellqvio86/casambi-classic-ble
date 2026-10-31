@@ -277,6 +277,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Verify release tag matches pyproject version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION=$(grep -m 1 '^version =' pyproject.toml | cut -d '"' -f 2)
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "Error: Release tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)"
+            exit 1
+          fi
+          echo "Verified release tag version ($TAG_VERSION) matches pyproject.toml ($PYPROJECT_VERSION)"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:

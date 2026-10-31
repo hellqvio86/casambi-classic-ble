@@ -100,7 +100,14 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=term-missing
+          uv run pytest src/tests/ --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.python-version == '3.12'
+        with:
+          name: coverage-report
+          path: coverage.xml
 
   secrets:
     name: Secret Scan (TruffleHog)

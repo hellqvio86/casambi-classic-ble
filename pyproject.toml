@@ -64,7 +64,8 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
 
 [tool.mypy]
 python_version = "3.12"

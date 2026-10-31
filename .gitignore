@@ -18,6 +18,7 @@ ENV/
 # Testing and coverage
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .mypy_cache/
 

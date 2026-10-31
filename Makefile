@@ -62,7 +62,7 @@ format:
 
 coverage:
 	@echo "Running coverage..."
-	uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=html --cov-report=term-missing
+	uv run pytest src/tests/ --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=html --cov-report=term-missing
 
 build:
 	@echo "Building package distributions with uv..."
@@ -76,7 +76,7 @@ clean:
 	@echo "Cleaning up..."
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	rm -rf .pytest_cache .coverage htmlcov/ .mypy_cache dist/ build/ casambi_classic_ble.egg-info
+	rm -rf .pytest_cache .coverage coverage.xml htmlcov/ .mypy_cache dist/ build/ casambi_classic_ble.egg-info
 
 all: secrets trivy lint test
 	@echo "All checks passed successfully!"

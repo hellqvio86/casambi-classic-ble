@@ -7,6 +7,16 @@ class CasambiError(Exception):
     pass
 
 
+# Convenience alias for CasambiError
+CasambiException = CasambiError
+
+
+class CasambiDeviceError(CasambiError):
+    """Raised when device parameter or control command validation fails"""
+
+    pass
+
+
 class CasambiConnectionError(CasambiError):
     """Raised when connection fails"""
 

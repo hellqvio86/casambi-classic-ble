@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Union
 from bleak import BleakClient, BleakScanner, BLEDevice
 
 from .constants import CasambiCommands, CasambiUUIDs
+from .exceptions import CasambiDeviceError
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +286,8 @@ class CasambiDevice:
 
     async def turn_on(self, *, unit_id: int = 1) -> bool:
         """Turn on a light unit (using Set Level 100%)"""
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         logger.info(f"Switching Unit {unit_id} to state: ON")
         # For 26.xx firmware, Set Level (0x03) + 2-byte Unit + 1-byte Level is most reliable
         # Format: [0x03] [Unit Low] [Unit High] [0xFF]
@@ -293,6 +296,8 @@ class CasambiDevice:
 
     async def turn_off(self, *, unit_id: int = 1) -> bool:
         """Turn off a light unit (using Set Level 0%)"""
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         logger.info(f"Switching Unit {unit_id} to state: OFF")
         # Format: [0x03] [Unit Low] [Unit High] [0x00]
         payload = struct.pack("<HB", unit_id, 0x00)
@@ -339,6 +344,8 @@ class CasambiDevice:
 
     async def get_state(self, *, unit_id: int) -> None:
         """Request state for a specific unit using multiple methods"""
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         # Method 1: Global Get State (0x14)
         payload1 = struct.pack("B", unit_id)
         logger.debug(f"Requesting state via 0x14 for unit {unit_id}")
@@ -353,19 +360,35 @@ class CasambiDevice:
 
     async def set_level(self, *, unit_id: int, level: float) -> bool:
         """Set brightness level (0.0 - 1.0)"""
-        level_byte = int(max(0, min(255, level * 255)))
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
+        if not (0.0 <= level <= 1.0):
+            raise CasambiDeviceError(f"level must be between 0.0 and 1.0, got {level}")
+        level_byte = int(round(level * 255))
         # Classic Command 0x03 (Set Level) + 1-byte unit ID + 1-byte level
         payload = struct.pack("BB", unit_id, level_byte)
         return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
     async def set_color_temperature(self, *, unit_id: int, temp_kelvin: int) -> bool:
         """Set color temperature (2000-6500K)"""
-        temp_kelvin = max(2000, min(6500, temp_kelvin))
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
+        if not (2000 <= temp_kelvin <= 6500):
+            raise CasambiDeviceError(
+                f"temp_kelvin must be between 2000 and 6500K, got {temp_kelvin}"
+            )
         payload = struct.pack("BH", unit_id, temp_kelvin)
         return await self._send_command(command=CasambiCommands.SET_COLOR_TEMP, payload=payload)
 
     async def set_rgb(self, *, unit_id: int, r: int, g: int, b: int) -> bool:
         """Set RGB color (0-255 for each channel)"""
+        if not (0 <= unit_id <= 255):
+            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
+        for channel_name, val in (("r", r), ("g", g), ("b", b)):
+            if not (0 <= val <= 255):
+                raise CasambiDeviceError(
+                    f"RGB channel '{channel_name}' must be between 0 and 255, got {val}"
+                )
         payload = struct.pack("BBBB", unit_id, r, g, b)
         return await self._send_command(command=CasambiCommands.SET_RGB, payload=payload)
 

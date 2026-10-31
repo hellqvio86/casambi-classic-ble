@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from casambi_classic_ble import CasambiDevice
+from casambi_classic_ble.exceptions import CasambiDeviceError
 
 
 class TestCasambiDevice:
@@ -270,3 +271,51 @@ class TestCasambiDevice:
         device._notification_handler("test-sender", bytearray([0x01, 0x05, 0xFF]))
         assert len(received) == 1
         assert device.last_state["id"] == 5
+
+    @pytest.mark.asyncio
+    async def test_input_validation_set_level_rejects_out_of_bounds(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        with pytest.raises(CasambiDeviceError, match="level must be between 0.0 and 1.0"):
+            await device.set_level(unit_id=1, level=-0.1)
+
+        with pytest.raises(CasambiDeviceError, match="level must be between 0.0 and 1.0"):
+            await device.set_level(unit_id=1, level=1.01)
+
+        with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
+            await device.set_level(unit_id=-1, level=0.5)
+
+        with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
+            await device.set_level(unit_id=256, level=0.5)
+
+    @pytest.mark.asyncio
+    async def test_input_validation_turn_on_off_rejects_invalid_unit_id(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
+            await device.turn_on(unit_id=-1)
+
+        with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
+            await device.turn_off(unit_id=300)
+
+        with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
+            await device.get_state(unit_id=-5)
+
+    @pytest.mark.asyncio
+    async def test_input_validation_color_temperature_rejects_out_of_bounds(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        with pytest.raises(CasambiDeviceError, match="temp_kelvin must be between 2000 and 6500K"):
+            await device.set_color_temperature(unit_id=1, temp_kelvin=1999)
+
+        with pytest.raises(CasambiDeviceError, match="temp_kelvin must be between 2000 and 6500K"):
+            await device.set_color_temperature(unit_id=1, temp_kelvin=6501)
+
+    @pytest.mark.asyncio
+    async def test_input_validation_rgb_rejects_out_of_bounds(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        with pytest.raises(CasambiDeviceError, match="RGB channel 'r'"):
+            await device.set_rgb(unit_id=1, r=-1, g=100, b=100)
+
+        with pytest.raises(CasambiDeviceError, match="RGB channel 'g'"):
+            await device.set_rgb(unit_id=1, r=100, g=256, b=100)
+
+        with pytest.raises(CasambiDeviceError, match="RGB channel 'b'"):
+            await device.set_rgb(unit_id=1, r=100, g=100, b=999)

@@ -183,14 +183,16 @@ class CasambiDevice:
         if self._notification_callback:
             self._notification_callback(data)
 
-    def update_from_advertisement(self, *, mfr_data: bytes) -> Optional[Dict[str, Any]]:
+    def update_from_advertisement(
+        self, *, mfr_data: Union[bytes, bytearray]
+    ) -> Optional[Dict[str, Any]]:
         """Update device state from passive advertisement data (ID 963)"""
-        if len(mfr_data) < 8:
+        if not isinstance(mfr_data, (bytes, bytearray)) or len(mfr_data) < 8:
             return None
 
         # Verify this data belongs to us (first 6 bytes match address digits)
         addr_clean = self.address.replace(":", "").lower()
-        mfr_id_hex = mfr_data[:6].hex().lower()
+        mfr_id_hex = bytes(mfr_data[:6]).hex().lower()
 
         # Note: Address can be reversed in some contexts, but internal ID is usually suffix-based
         if mfr_id_hex not in addr_clean and addr_clean not in mfr_id_hex:
@@ -217,8 +219,11 @@ class CasambiDevice:
         )
 
         if self._notification_callback:
-            # Wrap in bytearray to satisfy callback expectations
-            self._notification_callback(bytearray(mfr_data))
+            try:
+                # Wrap in bytearray to satisfy callback expectations
+                self._notification_callback(bytearray(mfr_data))
+            except Exception as err:
+                logger.warning(f"Error in notification callback: {err}", exc_info=True)
 
         return status
 
@@ -227,7 +232,7 @@ class CasambiDevice:
         Parse raw notification data into a dictionary.
         Enriched to match Casambi Cloud API structure.
         """
-        if len(data) < 3:
+        if not isinstance(data, (bytes, bytearray)) or len(data) < 3:
             return {}
 
         opcode = data[0]

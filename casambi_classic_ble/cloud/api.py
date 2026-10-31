@@ -1,15 +1,18 @@
 """Casambi Cloud REST API handler"""
+
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import aiohttp
 
-from ..exceptions import CasambiError, CasambiCloudApiException
+from ..exceptions import CasambiCloudApiException
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class CasambiCloudAPI:
     """Handles REST API communication with Casambi Cloud"""
-    
+
     def __init__(self, api_key: str, session: Optional[aiohttp.ClientSession] = None):
         self.api_key = api_key
         self._session = session
@@ -30,10 +33,14 @@ class CasambiCloudAPI:
         url = "https://door.casambi.com/v1/users/session/"
         payload = {"email": email, "password": password}
 
-        async with self._session.post(url, json=payload, headers=self._get_headers(False)) as response:
+        async with self._session.post(
+            url, json=payload, headers=self._get_headers(False)
+        ) as response:
             if response.status != 200:
                 text = await response.text()
-                raise CasambiCloudApiException(f"create_user_session failed: {response.status}, {text}")
+                raise CasambiCloudApiException(
+                    f"create_user_session failed: {response.status}, {text}"
+                )
 
             data = await response.json()
             self.session_id = data["sessionId"]
@@ -48,10 +55,14 @@ class CasambiCloudAPI:
         url = "https://door.casambi.com/v1/networks/session/"
         payload = {"email": email, "password": password}
 
-        async with self._session.post(url, json=payload, headers=self._get_headers(False)) as response:
+        async with self._session.post(
+            url, json=payload, headers=self._get_headers(False)
+        ) as response:
             if response.status != 200:
                 text = await response.text()
-                raise CasambiCloudApiException(f"create_network_session failed: {response.status}, {text}")
+                raise CasambiCloudApiException(
+                    f"create_network_session failed: {response.status}, {text}"
+                )
 
             data = await response.json()
             network_ids = list(data.keys())
@@ -71,7 +82,9 @@ class CasambiCloudAPI:
         async with self._session.get(url, headers=self._get_headers()) as response:
             if response.status != 200:
                 text = await response.text()
-                raise CasambiCloudApiException(f"get_network_information failed: {response.status}, {text}")
+                raise CasambiCloudApiException(
+                    f"get_network_information failed: {response.status}, {text}"
+                )
             return await response.json()
 
     async def get_network_state(self) -> Dict[str, Any]:
@@ -83,7 +96,9 @@ class CasambiCloudAPI:
         async with self._session.get(url, headers=self._get_headers()) as response:
             if response.status != 200:
                 text = await response.text()
-                raise CasambiCloudApiException(f"get_network_state failed: {response.status}, {text}")
+                raise CasambiCloudApiException(
+                    f"get_network_state failed: {response.status}, {text}"
+                )
             return await response.json()
 
     async def get_unit_list(self) -> List[Dict[str, Any]]:

@@ -1,12 +1,13 @@
 """Tests for CasambiScanner"""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
-from casambi_classic_ble import CasambiScanner, CasambiDevice
+
+from casambi_classic_ble import CasambiDevice, CasambiScanner
 
 
 class TestCasambiScanner:
-
     @pytest.mark.asyncio
     async def test_scan_finds_casambi_devices(self, mock_device, mock_adv_data):
         with patch(

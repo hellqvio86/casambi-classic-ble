@@ -1,11 +1,12 @@
 """Casambi BLE device implementation"""
 
-import struct
-import logging
-import hashlib
 import asyncio
-from typing import Optional, Callable, Dict, Union
-from bleak import BleakClient, BLEDevice, BleakScanner
+import hashlib
+import logging
+import struct
+from typing import Callable, Dict, Optional, Union
+
+from bleak import BleakClient, BleakScanner, BLEDevice
 
 from .constants import CasambiCommands, CasambiUUIDs
 
@@ -24,7 +25,7 @@ class CasambiDevice:
             self.address = address
             self.name = name
             self._ble_device = None
-            
+
         self.client: Optional[BleakClient] = None
         self.is_connected = False
         self._notification_callback: Optional[Callable] = None
@@ -40,17 +41,17 @@ class CasambiDevice:
             if self.client:
                 try:
                     await self.client.disconnect()
-                except:
+                except Exception:
                     pass
 
             # Use BLEDevice if we have it, otherwise try to find it
             if not self._ble_device:
                 logger.info(f"Searching for device {self.address}...")
-                
+
                 # We'll do one scan and check multiple conditions for each discovered device
                 # This is much more reliable than multiple sequential find_device calls
                 discovered = await BleakScanner.discover(timeout=timeout / 2, return_adv=True)
-                
+
                 target_upper = self.address.upper()
                 target_reversed = None
                 if ":" in target_upper:
@@ -75,15 +76,17 @@ class CasambiDevice:
                         if mfr_data and len(mfr_data) >= 6:
                             mfr_addr = ":".join(f"{b:02X}" for b in mfr_data[:6]).upper()
                             if mfr_addr == target_upper:
-                                logger.info(f"Matched internal ID in Manufacturer Data: {mfr_addr} (Device: {dev_addr})")
+                                logger.info(
+                                    f"Matched internal ID in Manufacturer Data: {mfr_addr} (Device: {dev_addr})"
+                                )
                                 found = True
-                    
+
                     if found:
                         self._ble_device = dev
                         break
                     else:
                         logger.debug(f"Skipping device {dev_addr} ({dev.name})")
-            
+
             if not self._ble_device:
                 logger.error(f"Device {self.address} not found.")
                 return False
@@ -91,7 +94,7 @@ class CasambiDevice:
             logger.info(f"Connecting to {self._ble_device.address}...")
             self.client = BleakClient(self._ble_device, timeout=timeout)
             await self.client.connect()
-            
+
             # Discover services to determine which characteristics to use
             services = self.client.services
             if CasambiUUIDs.SERVICE_V2.lower() in [s.uuid.lower() for s in services]:
@@ -104,12 +107,12 @@ class CasambiDevice:
                 self._status_uuid = CasambiUUIDs.STATUS_V1
 
             self.is_connected = True
-            logger.info(f"Connected and services resolved for {self.name} at {self._ble_device.address}")
-
-            await self.client.start_notify(
-                self._status_uuid, self._notification_handler
+            logger.info(
+                f"Connected and services resolved for {self.name} at {self._ble_device.address}"
             )
-            
+
+            await self.client.start_notify(self._status_uuid, self._notification_handler)
+
             return True
 
         except Exception as e:
@@ -119,7 +122,7 @@ class CasambiDevice:
             if self.client:
                 try:
                     await self.client.disconnect()
-                except:
+                except Exception:
                     pass
             return False
 
@@ -127,13 +130,13 @@ class CasambiDevice:
         """Authenticate with the network password"""
         if not password:
             return True
-            
+
         # Conservative Classic Handshake: Plain MD5 hash
         # Some 26.x hardware in Classic mode is VERY sensitive to prefix bytes
         password_hash = hashlib.md5(password.encode("utf-8")).digest()
-        self._session_key = None # Disable XOR for standard Classic attempt
-        
-        logger.info(f"Authenticating with network password (Standard Classic)...")
+        self._session_key = None  # Disable XOR for standard Classic attempt
+
+        logger.info("Authenticating with network password (Standard Classic)...")
         # Command 0x07 is the standard authentication opcode
         return await self._send_command(CasambiCommands.AUTHENTICATE, password_hash)
 
@@ -168,7 +171,7 @@ class CasambiDevice:
         """Handle incoming notifications from device"""
         hex_data = data.hex()
         logger.info(f"==> BLE NOTIFICATION: {hex_data} (from {sender})")
-        
+
         status = self.parse_status(data)
         if status:
             self.last_state = status
@@ -184,62 +187,64 @@ class CasambiDevice:
         """Update device state from passive advertisement data (ID 963)"""
         if len(mfr_data) < 8:
             return
-            
+
         # Verify this data belongs to us (first 6 bytes match address digits)
         addr_clean = self.address.replace(":", "").lower()
         mfr_id_hex = mfr_data[:6].hex().lower()
-        
+
         # Note: Address can be reversed in some contexts, but internal ID is usually suffix-based
         if mfr_id_hex not in addr_clean and addr_clean not in mfr_id_hex:
-             # Check if Reversed
-             rev_mfr = "".join(reversed([mfr_id_hex[i:i+2] for i in range(0, 12, 2)]))
-             if rev_mfr not in addr_clean:
-                 return
+            # Check if Reversed
+            rev_mfr = "".join(reversed([mfr_id_hex[i : i + 2] for i in range(0, 12, 2)]))
+            if rev_mfr not in addr_clean:
+                return
 
         flags = mfr_data[6]
         is_on = bool(flags & 0x01)
         level_byte = mfr_data[7]
-        
+
         status = {
-            "id": int(mfr_data[0]), # Approximation of unit ID if needed, though usually internal
+            "id": int(mfr_data[0]),  # Approximation of unit ID if needed, though usually internal
             "on": is_on,
             "dimLevel": round(level_byte / 255.0, 3),
             "level_percent": round((level_byte / 255.0) * 100),
-            "source": "passive_adv"
+            "source": "passive_adv",
         }
-        
+
         self.last_state = status
-        logger.debug(f"Passive Update for {self.name}: {'ON' if is_on else 'OFF'} ({status['level_percent']}%)")
-        
+        logger.debug(
+            f"Passive Update for {self.name}: {'ON' if is_on else 'OFF'} ({status['level_percent']}%)"
+        )
+
         if self._notification_callback:
             # Wrap in bytearray to satisfy callback expectations
             self._notification_callback(mfr_data)
-            
+
         return status
 
     def parse_status(self, data: Union[bytearray, bytes]) -> Dict:
         """
-        Parse raw notification data into a dictionary. 
+        Parse raw notification data into a dictionary.
         Enriched to match Casambi Cloud API structure.
         """
         if len(data) < 3:
             return {}
-            
+
         opcode = data[0]
         # Casambi standard status fields
         status = {
             "opcode": f"{opcode:#02x}",
-            "id": data[1], # unitId
+            "id": data[1],  # unitId
             "on": data[2] > 0,
             "dimLevel": round((data[2] / 255.0), 3),
             "status": "ok",
-            "online": True
+            "online": True,
         }
-        
+
         # Human readable level for logging
         level_pct = round((data[2] / 255.0) * 100)
         status["level_percent"] = level_pct
-            
+
         return status
 
     def set_notification_callback(self, callback: Callable):
@@ -261,10 +266,10 @@ class CasambiDevice:
                     # Rotate through 4-byte session key
                     xor_payload.append(byte ^ self._session_key[i % 4])
                 payload = bytes(xor_payload)
-                
+
             packet = struct.pack("B", command) + payload
             logger.debug(f"Sending command {command:#02x} to {self._control_uuid}: {packet.hex()}")
-                
+
             await self.client.write_gatt_char(self._control_uuid, packet, response=True)
             logger.debug(f"Successfully wrote {len(packet)} bytes")
             return True
@@ -333,9 +338,9 @@ class CasambiDevice:
         payload1 = struct.pack("B", unit_id)
         logger.debug(f"Requesting state via 0x14 for unit {unit_id}")
         await self._send_command(CasambiCommands.GET_STATE, payload1)
-        
+
         await asyncio.sleep(1)
-        
+
         # Method 2: Specific Unit Query (0x0F)
         # Often required by 26.x hardware
         logger.debug(f"Requesting state via 0x0F for unit {unit_id}")

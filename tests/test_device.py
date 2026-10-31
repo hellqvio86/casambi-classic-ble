@@ -1,12 +1,13 @@
 """Tests for CasambiDevice"""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
+
 from casambi_classic_ble import CasambiDevice
 
 
 class TestCasambiDevice:
-
     def test_device_initialization(self):
         device = CasambiDevice(address="EE:F0:3D:B9:26:A9", name="Husnummer")
 
@@ -18,8 +19,13 @@ class TestCasambiDevice:
     async def test_connect_success(self, mock_bleak_client, mock_device):
         device = CasambiDevice(address="EE:F0:3D:B9:26:A9")
 
-        with patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client), \
-             patch("casambi_classic_ble.device.BleakScanner.find_device_by_address", new_callable=AsyncMock) as mock_find:
+        with (
+            patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client),
+            patch(
+                "casambi_classic_ble.device.BleakScanner.find_device_by_address",
+                new_callable=AsyncMock,
+            ) as mock_find,
+        ):
             mock_find.return_value = mock_device
             result = await device.connect()
 

@@ -1,16 +1,19 @@
 """Casambi Cloud Websocket handler"""
-import uuid
+
+import asyncio
 import json
 import logging
-import asyncio
-from typing import Dict, List, Any, Optional
+import uuid
+from typing import Any, Dict, List, Optional
+
 import websockets
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class CasambiCloudWebsocket:
     """Handles Websocket communication with Casambi Cloud"""
-    
+
     def __init__(self, api_key: str, network_id: str, session_id: str, wire_id: int = 1):
         self.api_key = api_key
         self.network_id = network_id
@@ -48,7 +51,7 @@ class CasambiCloudWebsocket:
             _LOGGER.error(f"Failed to open websocket: {e}")
             await self.web_sock.close()
             self.web_sock = None
-        
+
         return False
 
     async def send_command(self, unit_id: int, target_controls: Dict[str, Any]):
@@ -75,14 +78,14 @@ class CasambiCloudWebsocket:
                 msg = await asyncio.wait_for(self.web_sock.recv(), timeout=timeout)
                 data = json.loads(msg)
                 messages.append(data)
-                
+
                 # Human readable logging
                 if data.get("method") == "unitChanged":
                     _LOGGER.info(f"CLOUD UPDATE: Unit {data.get('id')} state changed")
                 elif data.get("method") == "controlUnit":
                     _LOGGER.info(f"CLOUD CONTROL: Unit {data.get('id')} command ACK")
 
-                timeout = 0.05 
+                timeout = 0.05
             except (asyncio.TimeoutError, websockets.ConnectionClosed):
                 break
         return messages
@@ -93,7 +96,7 @@ class CasambiCloudWebsocket:
             message = {"method": "close", "wire": self.wire_id}
             try:
                 await self.web_sock.send(json.dumps(message))
-            except:
+            except Exception:
                 pass
             await self.web_sock.close()
             self.web_sock = None

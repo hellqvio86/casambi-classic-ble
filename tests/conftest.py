@@ -1,8 +1,8 @@
 """Pytest configuration and fixtures"""
 
-import pytest
+from unittest.mock import AsyncMock, Mock
 
-from unittest.mock import Mock, AsyncMock
+import pytest
 from bleak import BleakClient, BLEDevice
 
 
@@ -26,6 +26,7 @@ def mock_adv_data():
     """Mock AdvertisementData"""
     adv_data = Mock()
     adv_data.service_uuids = ["0000fe3d-0000-1000-8000-00805f9b34fb"]
+    adv_data.manufacturer_data = {}
     return adv_data
 
 

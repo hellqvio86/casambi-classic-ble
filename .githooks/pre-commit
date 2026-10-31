@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "=========================================="
+echo "Running pre-commit checks..."
+echo "=========================================="
+
+echo "--> [1/2] Running lint..."
+make lint
+
+echo "--> [2/2] Running tests..."
+make test
+
+echo "=========================================="
+echo "All pre-commit checks passed successfully!"
+echo "=========================================="
+exit 0

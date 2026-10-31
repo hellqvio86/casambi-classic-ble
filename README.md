@@ -1,19 +1,46 @@
 # Casambi Classic BLE Library
 
-A Python library for controlling Casambi lighting devices with classic firmware via Bluetooth Low Energy (BLE).
-
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Firmware](https://img.shields.io/badge/firmware-Classic%20Casambi-orange.svg)](https://casambi.com)
+[![Focus](https://img.shields.io/badge/focus-Classic%20BLE%20Networks-green.svg)](#why-this-fork-classic-vs-evolution)
+
+A Python library for controlling Casambi lighting devices running **Classic firmware** via Bluetooth Low Energy (BLE).
+
+> [!IMPORTANT]
+> **Fork & Firmware Focus Notice**  
+> This project is a specialized fork created specifically to focus on **Casambi Classic** networks and devices.  
+> 
+> Most modern open-source Casambi BLE libraries (such as `casambi-bt`) are designed exclusively for newer **Evolution** firmware networks. This library exists to fill the gap for installations that run legacy **Classic** firmware, providing dedicated BLE scanning, passive advertisement state tracking, and direct GATT control without requiring an upgrade to Evolution.
+
+---
+
+## Why This Fork? (Classic vs. Evolution)
+
+Casambi networks run on one of two major firmware profiles: **Evolution** or **Classic**.
+
+- **Evolution Networks:** Newer Casambi installations use the Evolution profile, which has different encryption, UUIDs, and network protocols. Libraries like [casambi-bt](https://github.com/lkempf/casambi-bt) are designed around Evolution.
+- **Classic Networks (This Fork's Focus):** Many existing installations and older Casambi modules remain on Classic firmware. Upgrading is not always feasible or desirable. This fork is tailored to:
+  - Communicate with Classic BLE GATT services and characteristics (`FE3D` and `FE4D`).
+  - Parse Classic passive BLE advertisement frames (Manufacturer ID `0x03C3` / `963`) to monitor on/off state and brightness levels without polling.
+  - Send direct BLE commands tailored to Classic device firmware (switching, dimming, color temperature, and RGB).
+  - Provide optional Casambi Cloud API support for synchronizing network topologies and states.
+
+> [!TIP]
+> **Can I use evolution with this library?**
+> - If your network runs **Evolution** firmware: Consider using [casambi-bt](https://github.com/lkempf/casambi-bt).
+
+---
 
 ## Features
 
-- 🔍 Discover Casambi devices on the network
-- 🔌 Connect to devices via BLE
-- 💡 Control lighting (on/off, brightness)
-- 🎨 RGB color control
-- 🌡️ Color temperature adjustment
-- 📡 Real-time notifications from devices
-- ✅ Classic firmware support
+- 🎯 **Classic-First Architecture:** Tailored specifically for Casambi Classic firmware devices.
+- 🔍 **BLE Discovery & Scanner:** Discover Classic Casambi nodes and decode passive manufacturer advertisement data.
+- 📡 **Passive State Tracking:** Read on/off and dimming levels directly from BLE advertisements in real-time.
+- 🔌 **Direct BLE Control:** Connect directly over Bluetooth Low Energy without mandatory cloud intermediaries.
+- 💡 **Lighting Controls:** Turn lights on/off and set brightness dim levels.
+- 🎨 **RGB & Color Temperature:** Adjust RGB colors and color temperature (Kelvin).
+- ☁️ **Cloud Sync (Optional):** Integration with the Casambi Cloud API for session handling and topology inspection.
 
 ## Installation
 
@@ -36,7 +63,7 @@ import asyncio
 from casambi_classic_ble import CasambiScanner
 
 async def main():
-    # Scan for devices
+    # Scan for Classic Casambi devices
     scanner = CasambiScanner()
     devices = await scanner.scan(duration=5.0)
     
@@ -58,22 +85,23 @@ asyncio.run(main())
 
 ## Development
 
-### Setup
+Using `make`:
 
 ```bash
-./test.sh setup
-```
+# Set up development environment (syncs dependencies and installs git hooks)
+make setup
 
-### Run Tests
+# Or install the git commit hook directly
+make hooks
 
-```bash
-./test.sh test
-```
+# Run tests
+make test
 
-### Run All Checks
+# Run linting and checks
+make lint
 
-```bash
-./test.sh all
+# Run all checks
+make all
 ```
 
 ## License

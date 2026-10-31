@@ -1,26 +1,37 @@
 """Casambi Cloud Client Implementation"""
+
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 import aiohttp
 
+from ..exceptions import CasambiCloudApiException
 from .api import CasambiCloudAPI
 from .websocket import CasambiCloudWebsocket
-from ..exceptions import CasambiCloudApiException
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class CasambiCloud:
     """
     Casambi Cloud API client. Acts as a facade for REST and Websocket modules.
     """
 
-    def __init__(self, *, api_key: str, email: str, user_password: str, network_password: str, wire_id: int = 1):
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        email: str,
+        user_password: str,
+        network_password: str,
+        wire_id: int = 1,
+    ):
         self.api_key = api_key
         self.email = email
         self.user_password = user_password
         self.network_password = network_password
         self.wire_id = wire_id
-        
+
         self._session: Optional[aiohttp.ClientSession] = None
         self._api: Optional[CasambiCloudAPI] = None
         self._ws: Optional[CasambiCloudWebsocket] = None
@@ -84,12 +95,9 @@ class CasambiCloud:
         """Open websocket connection."""
         if not self._api or not self._api.network_id or not self._api.session_id:
             raise CasambiCloudApiException("Login required before opening websocket.")
-            
+
         self._ws = CasambiCloudWebsocket(
-            self.api_key, 
-            self._api.network_id, 
-            self._api.session_id, 
-            self.wire_id
+            self.api_key, self._api.network_id, self._api.session_id, self.wire_id
         )
         return await self._ws.open()
 
@@ -113,5 +121,6 @@ class CasambiCloud:
             raise CasambiCloudApiException("Websocket connection required for control.")
         target_controls = {"Dimmer": {"value": value}}
         await self._ws.send_command(unit_id, target_controls)
+
 
 __all__ = ["CasambiCloud"]

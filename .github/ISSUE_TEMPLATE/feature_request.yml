@@ -1,0 +1,60 @@
+name: Feature Request
+description: Propose an enhancement, new feature, or protocol addition
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Feature Request / Enhancement Proposal
+        Thank you for suggesting an improvement to `casambi-classic-ble`!
+        Please review [CONTRIBUTING.md](https://github.com/hellqvio86/casambi-classic-ble/blob/main/CONTRIBUTING.md) and [docs/protocol.md](https://github.com/hellqvio86/casambi-classic-ble/blob/main/docs/protocol.md) before submitting.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Motivation
+      description: Is your feature request related to a problem or missing capability?
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution & API Design
+      description: Describe the solution you'd like. Include proposed Python API signatures or code snippets if relevant.
+      placeholder: |
+        Proposed API signature:
+        ```python
+        await device.new_feature(*, param: int) -> None
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or workarounds you've considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: classic_context
+    attributes:
+      label: Classic Firmware Protocol Context
+      description: Does this feature require specific Classic GATT characteristics, opcodes, or advertisement frames?
+      placeholder: "Relates to opcode 0x06 or status notifications..."
+    validations:
+      false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have verified this is relevant to **Casambi Classic** firmware networks.
+          required: true
+        - label: I searched existing GitHub issues and pull requests to ensure this is not a duplicate.
+          required: true

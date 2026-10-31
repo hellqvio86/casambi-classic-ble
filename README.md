@@ -167,6 +167,14 @@ asyncio.run(main())
 
 ---
 
+## Contributing & Security
+
+- **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development setup, coding standards, and pull request guidelines.
+- **Security Policy:** See [SECURITY.md](SECURITY.md) for vulnerability disclosure procedures and private reporting channels.
+- **Protocol Documentation:** See [docs/protocol.md](docs/protocol.md) for packet formats, opcode tables, and Wireshark capture guides.
+
+---
+
 ## Acknowledgements & Attribution
 
 This library is a specialized fork of [`casambi-bt`](https://github.com/lkempf/casambi-bt), originally created by **Lukas Kempf** ([@lkempf](https://github.com/lkempf)). We are immensely grateful to Lukas Kempf and the upstream contributors for their pioneering reverse-engineering and BLE protocol architecture.

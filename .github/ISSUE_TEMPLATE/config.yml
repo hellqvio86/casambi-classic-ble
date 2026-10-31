@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability Reporting
+    url: https://github.com/hellqvio86/casambi-classic-ble/security/advisories/new
+    about: Privately disclose sensitive security vulnerabilities or credential leakage issues.
+  - name: Evolution Network Support (Upstream casambi-bt)
+    url: https://github.com/lkempf/casambi-bt/issues
+    about: If your network uses Casambi Evolution firmware, please report issues to upstream casambi-bt.

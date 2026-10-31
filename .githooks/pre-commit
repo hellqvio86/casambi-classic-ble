@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "=========================================="
+echo "Running pre-commit checks..."
+echo "=========================================="
+
+echo "--> [1/3] Running TruffleHog secret scan..."
+if ! command -v trufflehog >/dev/null 2>&1; then
+    echo "ERROR: trufflehog is mandatory for git pre-commit checks but was not found in PATH!" >&2
+    echo "Install trufflehog via: curl -sL https://github.com/trufflesecurity/trufflehog/releases/download/v3.99.7/trufflehog_3.99.7_linux_amd64.tar.gz | tar -xz -C ~/.local/bin trufflehog" >&2
+    exit 1
+fi
+
+# Check for accidental credential filenames in staged index
+for file in $(git diff --cached --name-only); do
+    case "$file" in
+        casambi.yaml|*.yaml.enc|*.env|*.env.*|*credential*|*secret*.yaml|*secret*.json)
+            echo "BLOCKED: Attempting to commit restricted credentials file: $file" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Run trufflehog scan on staged changes and git repository
+git diff --cached | trufflehog stdin --fail
+trufflehog git file://"$REPO_ROOT" --fail
+
+echo "--> [2/3] Running lint..."
+make lint
+
+echo "--> [3/3] Running tests..."
+make test
+
+echo "=========================================="
+echo "All pre-commit checks passed successfully!"
+echo "=========================================="
+exit 0

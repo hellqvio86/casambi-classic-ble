@@ -1,0 +1,333 @@
+name: CI/CD
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Select which job to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - lint
+          - test
+          - security
+          - draft-release
+          - publish
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.job == 'all' ||
+      inputs.job == 'lint' ||
+      inputs.job == 'publish'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run ruff check
+        run: uv run ruff check src/ tests/
+
+      - name: Run ruff format check
+        run: uv run ruff format --check src/ tests/
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.job == 'all' ||
+      inputs.job == 'test' ||
+      inputs.job == 'publish'
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        run: |
+          uv run pytest tests/ --cov=casambi_classic_ble --cov-report=term-missing
+
+  secrets:
+    name: Secret Scan (TruffleHog)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.job == 'all' ||
+      inputs.job == 'security' ||
+      inputs.job == 'publish'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog OSS
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
+
+  trivy:
+    name: Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.job == 'all' ||
+      inputs.job == 'security' ||
+      inputs.job == 'publish'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+
+  all-checks:
+    name: All Checks Passed
+    if: always()
+    needs: [lint, test, secrets, trivy]
+    outputs:
+      success: ${{ steps.check.outputs.success }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        id: check
+        run: |
+          LINT_RESULT="${{ needs.lint.result }}"
+          TEST_RESULT="${{ needs.test.result }}"
+          SECRETS_RESULT="${{ needs.secrets.result }}"
+          TRIVY_RESULT="${{ needs.trivy.result }}"
+          if [[ "$LINT_RESULT" == "success" || "$LINT_RESULT" == "skipped" ]] && \
+             [[ "$TEST_RESULT" == "success" || "$TEST_RESULT" == "skipped" ]] && \
+             [[ "$SECRETS_RESULT" == "success" || "$SECRETS_RESULT" == "skipped" ]] && \
+             [[ "$TRIVY_RESULT" == "success" || "$TRIVY_RESULT" == "skipped" ]]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "All executed checks passed!"
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "One or more checks failed"
+            exit 1
+          fi
+
+  draft-release:
+    name: Draft Release
+    runs-on: ubuntu-latest
+    needs: [all-checks]
+    if: |
+      always() &&
+      needs.all-checks.outputs.success == 'true' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'draft-release'))
+      )
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check version change
+        id: check_version
+        shell: bash
+        run: |
+          CURRENT_VERSION=$(grep -m 1 '^version =' pyproject.toml | cut -d '"' -f 2)
+          PREVIOUS_VERSION=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
+
+          if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Git tag
+        if: steps.check_version.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.check_version.outputs.version }}" -m "Release v${{ steps.check_version.outputs.version }}"
+          git push origin "v${{ steps.check_version.outputs.version }}"
+
+      - name: Install uv
+        if: steps.check_version.outputs.changed == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        if: steps.check_version.outputs.changed == 'true'
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build package
+        if: steps.check_version.outputs.changed == 'true'
+        run: |
+          uv build
+
+      - name: Generate SBOM
+        if: steps.check_version.outputs.changed == 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Generate Changelog
+        if: steps.check_version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git fetch --tags --force
+          TAGS=$(git tag --sort=-v:refname | grep -E '^v[0-9]')
+          TAG_COUNT=$(echo "$TAGS" | grep -c -E '^v[0-9]' || echo 0)
+          echo "## Changelog" > changelog.md
+          echo "" >> changelog.md
+          if [ "$TAG_COUNT" -le 1 ]; then
+            git log --pretty=format:"* %s (%h)" --no-merges >> changelog.md
+          else
+            PREV_TAG=$(echo "$TAGS" | sed -n '2p')
+            git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges >> changelog.md
+          fi
+          echo "" >> changelog.md
+
+      - name: Create Release Draft
+        if: steps.check_version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.check_version.outputs.version }}
+          name: v${{ steps.check_version.outputs.version }}
+          draft: true
+          body_path: changelog.md
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            sbom.spdx.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    needs: [all-checks]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/casambi-classic-ble
+    if: |
+      always() &&
+      needs.all-checks.outputs.success == 'true' &&
+      (
+        (github.event_name == 'release' && github.event.action == 'published') ||
+        (github.event_name == 'workflow_dispatch' && inputs.job == 'publish')
+      )
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build package
+        run: uv build
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: sbom.spdx.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+
+  sbom:
+    name: Generate and Upload SBOM
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'all' || inputs.job == 'publish' || inputs.job == 'draft-release'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom.spdx.json

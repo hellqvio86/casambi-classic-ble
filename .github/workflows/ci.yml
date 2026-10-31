@@ -84,6 +84,8 @@ jobs:
             resolution: "highest"
           - python-version: "3.13"
             resolution: "highest"
+          - python-version: "3.14"
+            resolution: "highest"
           - python-version: "3.12"
             resolution: "lowest-direct"
 

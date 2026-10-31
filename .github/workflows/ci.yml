@@ -182,13 +182,49 @@ jobs:
         shell: bash
         run: |
           CURRENT_VERSION=$(grep -m 1 '^version =' pyproject.toml | cut -d '"' -f 2)
-          PREVIOUS_VERSION=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Error: Could not extract current version from pyproject.toml"
+            exit 1
+          fi
 
-          if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.job }}" = "draft-release" ]; then
+            echo "Manual draft-release dispatch for version $CURRENT_VERSION"
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          BEFORE_SHA="${{ github.event.before }}"
+          BASE_REF=""
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && git rev-parse --verify "$BEFORE_SHA" >/dev/null 2>&1; then
+            BASE_REF="$BEFORE_SHA"
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            BASE_REF="HEAD~1"
+          fi
+
+          if [ -n "$BASE_REF" ]; then
+            PREVIOUS_VERSION=$(git show "$BASE_REF:pyproject.toml" 2>/dev/null | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
+            if [ -z "$PREVIOUS_VERSION" ]; then
+              echo "Error: Could not read pyproject.toml from base ref $BASE_REF"
+              exit 1
+            fi
+            if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+              echo "Version bump detected: $PREVIOUS_VERSION -> $CURRENT_VERSION"
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            else
+              echo "Version unchanged ($CURRENT_VERSION)"
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No previous commit found (initial commit). Tagging initial version $CURRENT_VERSION if not exists."
+            if git rev-parse "v$CURRENT_VERSION" >/dev/null 2>&1; then
+              echo "Tag v$CURRENT_VERSION already exists"
+              echo "changed=false" >> $GITHUB_OUTPUT
+            else
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Create Git tag
@@ -196,8 +232,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.check_version.outputs.version }}" -m "Release v${{ steps.check_version.outputs.version }}"
-          git push origin "v${{ steps.check_version.outputs.version }}"
+          if git rev-parse "v${{ steps.check_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.check_version.outputs.version }} already exists"
+          else
+            git tag -a "v${{ steps.check_version.outputs.version }}" -m "Release v${{ steps.check_version.outputs.version }}"
+            git push origin "v${{ steps.check_version.outputs.version }}"
+          fi
 
       - name: Install uv
         if: steps.check_version.outputs.changed == 'true'

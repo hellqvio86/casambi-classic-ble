@@ -1,17 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "casambi-classic-ble"
 version = "0.3.2"
-description = "Bluetooth Low Energy library for Casambi classic firmware lighting control (fork of casambi-bt)"
+description = "Bluetooth Low Energy library for Casambi classic firmware lighting control (fork of casambi-bt by Lukas Kempf)"
 authors = [
-    {name = "Olof Hellqvist", email = "olof.hellqvist@gmail.com"}
+    {name = "Lukas Kempf (Original casambi-bt author)"},
+    {name = "Olof Hellqvist (casambi-classic-ble maintainer)", email = "olof.hellqvist@gmail.com"},
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["casambi", "bluetooth", "ble", "smart-lighting", "home-automation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -24,6 +26,7 @@ classifiers = [
 dependencies = [
     "bleak>=0.21.0",
     "aiohttp>=3.14.4",
+    "multidict>=6.7.2",
     "websockets>=12.0",
     "cryptography>=40.0.0",
     "httpx>=0.25",

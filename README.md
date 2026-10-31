@@ -109,10 +109,17 @@ make lint
 make all
 ```
 
+## Acknowledgements & Attribution
+
+This library is a specialized fork of [`casambi-bt`](https://github.com/lkempf/casambi-bt), originally created by **Lukas Kempf** ([@lkempf](https://github.com/lkempf)). We are immensely grateful to Lukas Kempf and the upstream contributors for their pioneering reverse-engineering and BLE protocol architecture.
+
+See [ATTRIBUTION.md](ATTRIBUTION.md) for detailed attribution and fork history.
+
+## Authors & Maintainers
+
+- **Lukas Kempf** ([@lkempf](https://github.com/lkempf)) — Original author and creator of `casambi-bt`
+- **Olof Hellqvist** ([@hellqvio86](https://github.com/hellqvio86), <olof.hellqvist@gmail.com>) — Maintainer of the `casambi-classic-ble` fork
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Author
-
-Olof Hellqvist <olof.hellqvist@gmail.com>
+This project is licensed under the MIT License and includes portions derived from `casambi-bt` (Apache-2.0 / MIT) — see [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md) for details.

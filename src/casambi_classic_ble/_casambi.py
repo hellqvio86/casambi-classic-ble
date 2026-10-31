@@ -223,15 +223,16 @@ class Casambi:
         """
         if isClassicNetwork(self._casaNetwork.protocolVersion):  # type: ignore
             for c in target.unitType.controls:
-                if c.type == UnitControlType.DIMMER and state.dimmer is not None:
+                c_val = c.type.value if hasattr(c.type, "value") else c.type
+                if c_val == UnitControlType.DIMMER.value and state.dimmer is not None:
                     await self.setLevel(target, state.dimmer)
-                elif c.type == UnitControlType.TEMPERATURE and state.temperature is not None:
+                elif c_val == UnitControlType.TEMPERATURE.value and state.temperature is not None:
                     await self.setTemperature(target, state.temperature)
-                elif c.type == UnitControlType.VERTICAL and state.vertical is not None:
+                elif c_val == UnitControlType.VERTICAL.value and state.vertical is not None:
                     await self.setVertical(target, state.vertical)
-                elif c.type == UnitControlType.WHITE and state.white is not None:
+                elif c_val == UnitControlType.WHITE.value and state.white is not None:
                     await self.setWhite(target, state.white)
-                elif c.type == UnitControlType.RGB and state.rgb is not None:
+                elif c_val == UnitControlType.RGB.value and state.rgb is not None:
                     await self.setColor(target, state.rgb)
         else:
             stateBytes = target.getStateAsBytes(state)

@@ -21,7 +21,7 @@ from .device import CasambiDevice
 from .exceptions import CasambiConnectionError, CasambiError
 from .scanner import CasambiScanner
 
-__version__ = "0.3.0"
+__version__ = "0.3.2"
 __author__ = "Olof Hellqvist"
 
 __all__ = [

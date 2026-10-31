@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2] - 2026-10-31
+
+### Fixed
+- Migrated `UnitControlType` to `IntEnum` for cross-package and integer interoperability.
+- Added legacy pickle normalization for `types.pck` cache to guarantee `UnitControlType` instances match when unpickling fixtures cached by previous library versions.
+- Safe enum comparison in `UnitType.get_control`, `Unit.setStateFromBytes`, and `Casambi.setUnitState`.
+
 ## [0.3.1] - 2026-10-31
 
 ### Fixed

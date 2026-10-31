@@ -1,6 +1,7 @@
 import json
 import pickle
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -18,6 +19,11 @@ from casambi_classic_ble.errors import (
     NetworkNotFoundError,
     NetworkOnlineUpdateNeededError,
 )
+
+
+class _ForeignControlType(Enum):
+    DIMMER = 0
+    RGB = 2
 
 
 @pytest.fixture
@@ -286,3 +292,42 @@ async def test_network_update_and_fetch_unit_info(mock_cache):
 
     # Test disconnect
     assert await net.disconnect() is None
+
+
+@pytest.mark.asyncio
+async def test_load_type_cache_normalization(mock_cache):
+    from casambi_classic_ble._unit import UnitControl, UnitControlType, UnitType
+
+    foreign_ctrl = UnitControl(
+        type=_ForeignControlType.DIMMER,  # type: ignore[arg-type]
+        offset=2,
+        length=8,
+        default=0,
+        readonly=False,
+        min=0,
+        max=100,
+    )
+    foreign_type = UnitType(
+        id=859,
+        model="TestModel",
+        manufacturer="TestMfr",
+        mode="Default",
+        stateLength=2,
+        controls=[foreign_ctrl],
+    )
+
+    types_data = {859: (foreign_type, datetime.now(UTC) + timedelta(days=7))}
+    async with mock_cache as p:
+        await (p / TYPES_CACHE_FILE).write_bytes(pickle.dumps(types_data))
+
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+    await net._loadTypeCache()
+
+    loaded_type, _ = net._unitTypes[859]
+    assert loaded_type is not None
+    assert loaded_type.controls[0].type == UnitControlType.DIMMER
+    assert isinstance(loaded_type.controls[0].type, UnitControlType)

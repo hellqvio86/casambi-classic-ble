@@ -2,7 +2,7 @@ import logging
 import warnings
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from dataclasses import dataclass, field
-from enum import Enum, EnumMeta, unique
+from enum import Enum, EnumMeta, IntEnum, unique
 from typing import Final
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class _DeprecatingMeta(EnumMeta):
 
 # Numbers are totally arbitrary so far.
 @unique
-class UnitControlType(Enum, metaclass=_DeprecatingMeta):
+class UnitControlType(IntEnum, metaclass=_DeprecatingMeta):
     """All implemented control types."""
 
     DIMMER = 0
@@ -118,8 +118,10 @@ class UnitType:
         :param controlType: The desired control type.
         :return: A control description for the given control type if available, otherwise `None`
         """
+        target_val = controlType.value if hasattr(controlType, "value") else controlType
         for c in self.controls:
-            if c.type == controlType:
+            c_val = c.type.value if hasattr(c.type, "value") else c.type
+            if c.type == controlType or c_val == target_val:
                 return c
 
         return None
@@ -679,47 +681,49 @@ class Unit:
             cInt >>= c.offset % 8
             cInt &= 2**c.length - 1
 
-            if c.type == UnitControlType.DIMMER:
+            c_val = c.type.value if hasattr(c.type, "value") else c.type
+
+            if c_val == UnitControlType.DIMMER.value:
                 scale = UnitState.DIMMER_RESOLUTION - c.length
                 self._state.dimmer = cInt << scale
-            elif c.type == UnitControlType.VERTICAL:
+            elif c_val == UnitControlType.VERTICAL.value:
                 scale = UnitState.VERTICAL_RESOLUTION - c.length
                 self._state.vertical = cInt << scale
-            elif c.type == UnitControlType.RGB:
+            elif c_val == UnitControlType.RGB.value:
                 if self._isClassic:
                     self._state.rgb = UnitState.rgb_from_int(cInt, c.length)
                 else:
                     self._state.hs = UnitState.hs_from_int(cInt, c.length)
-            elif c.type == UnitControlType.WHITE:
+            elif c_val == UnitControlType.WHITE.value:
                 scale = UnitState.WHITE_RESOLUTION - c.length
                 self._state.white = cInt << scale
-            elif c.type == UnitControlType.TEMPERATURE:
+            elif c_val == UnitControlType.TEMPERATURE.value:
                 if c.max is None or c.min is None:
                     _LOGGER.warning("Can't set temperature when min or max unknown.")
                     continue
                 self._state.temperature = UnitState.temperature_from_int(
                     cInt, c.min, c.max, c.length
                 )
-            elif c.type == UnitControlType.COLORSOURCE:
+            elif c_val == UnitControlType.COLORSOURCE.value:
                 self._state.colorsource = ColorSource(cInt)
-            elif c.type == UnitControlType.XY:
+            elif c_val == UnitControlType.XY.value:
                 self._state.xy = UnitState.xy_from_int(cInt, c.length)
-            elif c.type == UnitControlType.SLIDER:
+            elif c_val == UnitControlType.SLIDER.value:
                 scale = UnitState.SLIDER_RESOLUTION - c.length
                 self._state.slider = cInt << scale
-            elif c.type == UnitControlType.ONOFF:
+            elif c_val == UnitControlType.ONOFF.value:
                 self._state.onoff = cInt != 0
-            elif c.type == UnitControlType.WHITECOLORBALANCE:
+            elif c_val == UnitControlType.WHITECOLORBALANCE.value:
                 self._state.white_balance = cInt
-            elif c.type == UnitControlType.PRESENCE:
+            elif c_val == UnitControlType.PRESENCE.value:
                 self._state.presence = cInt
-            elif c.type == UnitControlType.LUX:
+            elif c_val == UnitControlType.LUX.value:
                 self._state.lux = cInt
-            elif c.type == UnitControlType.SENSOR:
+            elif c_val == UnitControlType.SENSOR.value:
                 _LOGGER.debug(
                     f"Sensor control at {c.offset}: {cInt}. Unit type is {self.unitType.id}."
                 )
-            elif c.type == UnitControlType.UNKNOWN:
+            elif c_val == UnitControlType.UNKNOWN.value:
                 # Might be useful for implementing more state types
                 _LOGGER.debug(
                     f"Value for unknown control type at {c.offset}: {cInt}. Unit type is {self.unitType.id}."

@@ -1,7 +1,7 @@
 import json
 import logging
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Final, cast
 
@@ -85,8 +85,29 @@ class Network:
         async with self._cache as cachePath:
             if await (cachePath / TYPES_CACHE_FILE).exists():
                 typeData = await (cachePath / TYPES_CACHE_FILE).read_bytes()
-                self._unitTypes = pickle.loads(typeData)
-                self._logger.info("Unit type cache loaded.")
+                try:
+                    loaded = pickle.loads(typeData)
+                    clean_types: dict[int, tuple[UnitType | None, datetime]] = {}
+                    for type_id, (unit_type, expiry) in loaded.items():
+                        if unit_type is not None:
+                            clean_controls = [
+                                replace(
+                                    c,
+                                    type=UnitControlType(
+                                        c.type.value if hasattr(c.type, "value") else int(c.type)
+                                    ),
+                                )
+                                for c in unit_type.controls
+                            ]
+                            unit_type = replace(unit_type, controls=clean_controls)
+                        clean_types[type_id] = (unit_type, expiry)
+                    self._unitTypes = clean_types
+                    self._logger.info("Unit type cache loaded.")
+                except Exception:
+                    self._logger.warning(
+                        "Failed to load unit type cache, resetting.", exc_info=True
+                    )
+                    self._unitTypes = {}
 
     async def _saveTypeCache(self) -> None:
         self._logger.debug("Saving type cache...")

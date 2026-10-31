@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 class CasambiDevice:
     """Represents a Casambi BLE device"""
 
-    def __init__(self, *, address: Union[str, BLEDevice], name: str = "Unknown"):
+    def __init__(
+        self,
+        *,
+        address: Union[str, BLEDevice],
+        name: str = "Unknown",
+        client: Optional[BleakClient] = None,
+    ):
         if isinstance(address, BLEDevice):
             self.address = address.address
             self.name = address.name or name
@@ -27,7 +33,7 @@ class CasambiDevice:
             self.name = name
             self._ble_device = None
 
-        self.client: Optional[BleakClient] = None
+        self.client: Optional[BleakClient] = client
         self.is_connected = False
         self._notification_callback: Optional[Callable[[bytearray], None]] = None
         self.last_state: dict[str, Any] = {}
@@ -38,63 +44,73 @@ class CasambiDevice:
     async def connect(self, *, timeout: float = 30.0) -> bool:
         """Connect to the Casambi device"""
         try:
-            # Ensure any old connection is closed
-            if self.client:
+            # If no pre-injected client, find/connect the device
+            if not self.client:
+                # Use BLEDevice if we have it, otherwise try to find it
+                if not self._ble_device:
+                    logger.info(f"Searching for device {self.address}...")
+
+                    # We'll do one scan and check multiple conditions for each discovered device
+                    # This is much more reliable than multiple sequential find_device calls
+                    discovered = await BleakScanner.discover(timeout=timeout / 2, return_adv=True)
+
+                    target_upper = self.address.upper()
+                    target_reversed = None
+                    if ":" in target_upper:
+                        parts = target_upper.split(":")
+                        if len(parts) == 6:
+                            target_reversed = ":".join(reversed(parts))
+
+                    for dev, adv in discovered.values():
+                        found = False
+                        dev_addr = dev.address.upper()
+                        # 1. Match address
+                        if dev_addr == target_upper:
+                            logger.info(f"Matched target address: {dev_addr}")
+                            found = True
+                        # 2. Match reversed address
+                        elif target_reversed and dev_addr == target_reversed:
+                            logger.info(f"Matched reversed address: {dev_addr}")
+                            found = True
+                        # 3. Match Manufacturer Data (Casambi ID 963 = 0x03C3)
+                        else:
+                            mfr_data = adv.manufacturer_data.get(963)
+                            if mfr_data and len(mfr_data) >= 6:
+                                mfr_addr = ":".join(f"{b:02X}" for b in mfr_data[:6]).upper()
+                                if mfr_addr == target_upper:
+                                    logger.info(
+                                        f"Matched internal ID in Manufacturer Data: {mfr_addr} (Device: {dev_addr})"
+                                    )
+                                    found = True
+
+                        if found:
+                            self._ble_device = dev
+                            break
+                        else:
+                            logger.debug(f"Skipping device {dev_addr} ({dev.name})")
+
+                if not self._ble_device:
+                    logger.error(f"Device {self.address} not found.")
+                    return False
+
+                logger.info(f"Connecting to {self._ble_device.address}...")
                 try:
-                    await self.client.disconnect()
-                except Exception:
-                    pass
+                    from bleak_retry_connector import establish_connection
 
-            # Use BLEDevice if we have it, otherwise try to find it
-            if not self._ble_device:
-                logger.info(f"Searching for device {self.address}...")
-
-                # We'll do one scan and check multiple conditions for each discovered device
-                # This is much more reliable than multiple sequential find_device calls
-                discovered = await BleakScanner.discover(timeout=timeout / 2, return_adv=True)
-
-                target_upper = self.address.upper()
-                target_reversed = None
-                if ":" in target_upper:
-                    parts = target_upper.split(":")
-                    if len(parts) == 6:
-                        target_reversed = ":".join(reversed(parts))
-
-                for dev, adv in discovered.values():
-                    found = False
-                    dev_addr = dev.address.upper()
-                    # 1. Match address
-                    if dev_addr == target_upper:
-                        logger.info(f"Matched target address: {dev_addr}")
-                        found = True
-                    # 2. Match reversed address
-                    elif target_reversed and dev_addr == target_reversed:
-                        logger.info(f"Matched reversed address: {dev_addr}")
-                        found = True
-                    # 3. Match Manufacturer Data (Casambi ID 963 = 0x03C3)
-                    else:
-                        mfr_data = adv.manufacturer_data.get(963)
-                        if mfr_data and len(mfr_data) >= 6:
-                            mfr_addr = ":".join(f"{b:02X}" for b in mfr_data[:6]).upper()
-                            if mfr_addr == target_upper:
-                                logger.info(
-                                    f"Matched internal ID in Manufacturer Data: {mfr_addr} (Device: {dev_addr})"
-                                )
-                                found = True
-
-                    if found:
-                        self._ble_device = dev
-                        break
-                    else:
-                        logger.debug(f"Skipping device {dev_addr} ({dev.name})")
-
-            if not self._ble_device:
-                logger.error(f"Device {self.address} not found.")
-                return False
-
-            logger.info(f"Connecting to {self._ble_device.address}...")
-            self.client = BleakClient(self._ble_device, timeout=timeout)
-            await self.client.connect()
+                    self.client = await establish_connection(
+                        client_class=BleakClient,
+                        device=self._ble_device,
+                        name=self.name,
+                        timeout=timeout,
+                    )
+                except Exception as conn_err:
+                    logger.warning(
+                        f"establish_connection failed, falling back to direct BleakClient: {conn_err}"
+                    )
+                    self.client = BleakClient(self._ble_device, timeout=timeout)
+                    await self.client.connect()
+            elif not getattr(self.client, "is_connected", False):
+                await self.client.connect()
 
             # Discover services to determine which characteristics to use
             services = self.client.services
@@ -108,9 +124,8 @@ class CasambiDevice:
                 self._status_uuid = CasambiUUIDs.STATUS_V1
 
             self.is_connected = True
-            logger.info(
-                f"Connected and services resolved for {self.name} at {self._ble_device.address}"
-            )
+            dev_addr = self._ble_device.address if self._ble_device else self.address
+            logger.info(f"Connected and services resolved for {self.name} at {dev_addr}")
 
             await self.client.start_notify(self._status_uuid, self._notification_handler)
 

@@ -16,6 +16,38 @@ class TestCasambiDevice:
         assert device.name == "MockDevice"
         assert device.is_connected is False
 
+    def test_device_initialization_with_ble_device(self, mock_device, mock_bleak_client):
+        # Initializing with BLEDevice and pre-injected client (Home Assistant pattern)
+        device = CasambiDevice(
+            address=mock_device,
+            name="External Name",
+            client=mock_bleak_client,
+        )
+        assert device.address == mock_device.address
+        assert device.name == mock_device.name
+        assert device.client is mock_bleak_client
+
+    @pytest.mark.asyncio
+    async def test_connect_with_ble_device_uses_establish_connection(
+        self, mock_device, mock_bleak_client
+    ):
+        device = CasambiDevice(address=mock_device)
+
+        with (
+            patch(
+                "bleak_retry_connector.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ) as mock_establish,
+            patch("casambi_classic_ble.device.BleakScanner.discover") as mock_discover,
+        ):
+            success = await device.connect(timeout=10.0)
+
+            assert success is True
+            assert device.is_connected is True
+            mock_establish.assert_called_once()
+            # Ensure scanner was NOT called because BLEDevice was already supplied
+            mock_discover.assert_not_called()
+
     def test_named_arguments_enforced(self):
         # Calling with positional arguments must raise TypeError
         with pytest.raises(TypeError):

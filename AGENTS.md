@@ -55,9 +55,11 @@ casambi-classic-ble/
      - Example hex payloads: `aabbccddeeff...`.
 2. **No Hardware Scripts with Personal Data:**
    - Never commit personal hardware diagnostic scripts, hardcoded MAC triggers, or local network dumps into the repository.
+   - **Hardware tests require explicit human approval:** Never execute scripts against real physical Bluetooth hardware or production lighting networks without explicit confirmation.
 3. **No Credentials:**
    - Never commit API keys, user passwords, network passwords, email addresses, or tokens.
    - Any local configuration files containing credentials (like `casambi.yaml`, `.env`) are strictly gitignored and must never be tracked or staged.
+   - Always run `make secrets` before pushing to ensure zero leaks.
 4. **Mandatory Secret Scanning:**
    - TruffleHog secret scanning is mandatory and enforced locally on every commit via `.githooks/pre-commit` and in CI.
 
@@ -148,12 +150,36 @@ make audit      # Runs pip-audit dependency vulnerability scanning
 make typecheck  # Runs mypy static type checking
 make lint       # Runs ruff, formatting, and mypy checks
 make format     # Auto-formats code and fixes fixable ruff lint issues
-make test       # Runs pytest unit tests
+make test       # Runs pytest unit tests with 80% coverage check
 make coverage   # Runs pytest with HTML and terminal coverage report
 make build      # Builds package wheels and sdist with uv
+make publish    # Displays PyPI release and publishing instructions
 make clean      # Cleans test cache, build artifacts, and pycache
 make all        # Runs all checks (secrets, trivy, audit, lint, test)
 ```
+
+---
+
+## 📡 Known Classic Protocol Quirks & Implementation Details
+
+Keep these hardware realities in mind when working on the protocol layer:
+1. **Reversed Hardware MAC in Advertisements:** Classic Casambi nodes broadcast manufacturer beacons (`0x03C3`) with the device MAC address in reversed byte order (`[::-1]`).
+2. **Strict Little-Endian Packing:** Word-level payloads (e.g. 16-bit Kelvin color temperatures) must be packed using little-endian without compiler alignment padding (`struct.pack("<BH", unit_id, kelvin)`).
+3. **Single Active BLE Connection:** Casambi nodes accept only one active GATT connection at a time. Simultaneous connections from mobile apps or other clients will cause connection timeouts.
+4. **Mandatory Write Serialization:** All GATT command writes must be serialized via `asyncio.Lock` (`_write_lock`) to prevent chunk interleaving.
+5. **State Duplicate Suppression:** Passive advertisement frames repeat continuously (several times per second); state subscribers must deduplicate identical consecutive frames.
+
+---
+
+## 🛡️ Enforced CI Quality Gates
+
+All checks are strictly **enforced and blocking** in GitHub Actions CI:
+- **Linting & Formatting:** Ruff with rules `E`, `F`, `W`, `I`, `UP`, `B`, `ASYNC`, `BLE`, `TRY`, `RUF`, `SIM`, `PT`, `ANN`, `S`, `FBT`.
+- **Static Typing:** Mypy strict mode on all source files (`uv run mypy src/`).
+- **Unit Tests & Coverage:** Pytest with branch coverage floor of **80%** (`--cov-branch --cov-fail-under=80`).
+- **Dependency Floors:** Tested against lowest-direct dependency resolution matrix (`uv sync --resolution lowest-direct`).
+- **Security & Vulnerabilities:** TruffleHog secret scanning, Trivy filesystem scan, and `pip-audit` dependency audit.
+
 
 ---
 

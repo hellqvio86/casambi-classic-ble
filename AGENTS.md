@@ -140,11 +140,19 @@ uv build
 Convenience `Makefile` targets:
 ```bash
 make setup      # Sets up virtualenv and installs all dependencies and hooks
-make lint       # Runs ruff and formatting check
+make venv       # Creates virtual environment with uv
+make hooks      # Installs pre-commit security, lint, and test hooks
+make secrets    # Runs TruffleHog secret scanning
+make trivy      # Runs Trivy vulnerability scanning
+make audit      # Runs pip-audit dependency vulnerability scanning
+make typecheck  # Runs mypy static type checking
+make lint       # Runs ruff, formatting, and mypy checks
+make format     # Auto-formats code and fixes fixable ruff lint issues
 make test       # Runs pytest unit tests
 make coverage   # Runs pytest with HTML and terminal coverage report
 make build      # Builds package wheels and sdist with uv
 make clean      # Cleans test cache, build artifacts, and pycache
+make all        # Runs all checks (secrets, trivy, audit, lint, test)
 ```
 
 ---

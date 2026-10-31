@@ -1,4 +1,4 @@
-.PHONY: help setup venv test lint format coverage clean all hooks build publish secrets trivy typecheck
+.PHONY: help setup venv test lint format coverage clean all hooks build publish secrets trivy audit typecheck
 
 help:
 	@echo "Available commands:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make hooks     - Install git commit hook (runs secrets, lint, and test before commit)"
 	@echo "  make secrets   - Run TruffleHog secret scanning"
 	@echo "  make trivy     - Run Trivy vulnerability scanning"
+	@echo "  make audit     - Run pip-audit dependency vulnerability scanning"
 	@echo "  make typecheck - Run mypy static type analysis"
 	@echo "  make test      - Run tests"
 	@echo "  make lint      - Run linting and typechecking"
@@ -30,6 +31,10 @@ secrets:
 trivy:
 	@echo "Running Trivy vulnerability scan..."
 	@docker run --rm -v $$(pwd):/src -w /src aquasec/trivy:latest fs --severity HIGH,CRITICAL --exit-code 1 .
+
+audit:
+	@echo "Running pip-audit dependency scan..."
+	uvx pip-audit
 
 setup: hooks
 	@echo "Setting up development environment..."
@@ -80,5 +85,5 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	rm -rf .pytest_cache .coverage coverage.xml htmlcov/ .mypy_cache dist/ build/ casambi_classic_ble.egg-info
 
-all: secrets trivy lint test
+all: secrets trivy audit lint test
 	@echo "All checks passed successfully!"

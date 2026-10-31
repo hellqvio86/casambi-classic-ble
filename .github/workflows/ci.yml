@@ -54,7 +54,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --locked --all-extras
 
       - name: Run ruff check
         run: uv run ruff check src/
@@ -66,7 +66,7 @@ jobs:
         run: uv run mypy src/
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    name: Test (Python ${{ matrix.python-version }}, ${{ matrix.resolution }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -79,7 +79,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        include:
+          - python-version: "3.12"
+            resolution: "highest"
+          - python-version: "3.13"
+            resolution: "highest"
+          - python-version: "3.12"
+            resolution: "lowest-direct"
 
     steps:
       - name: Checkout code
@@ -95,8 +101,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: uv sync --all-extras
+      - name: Install dependencies (${{ matrix.resolution }})
+        run: |
+          if [ "${{ matrix.resolution }}" = "lowest-direct" ]; then
+            uv sync --resolution lowest-direct --all-extras
+          else
+            uv sync --locked --all-extras
+          fi
 
       - name: Run tests
         run: |
@@ -104,7 +115,7 @@ jobs:
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && matrix.resolution == 'highest'
         with:
           name: coverage-report
           path: coverage.xml
@@ -149,11 +160,32 @@ jobs:
           exit-code: '1'
           severity: 'HIGH,CRITICAL'
 
+  audit:
+    name: Dependency Vulnerability Audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.job == 'all' ||
+      inputs.job == 'security' ||
+      inputs.job == 'publish'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Run pip-audit
+        run: uvx pip-audit
+
   all-checks:
     name: All Checks Passed
     if: always()
     timeout-minutes: 15
-    needs: [lint, test, secrets, trivy]
+    needs: [lint, test, secrets, trivy, audit]
     outputs:
       success: ${{ steps.check.outputs.success }}
     runs-on: ubuntu-latest
@@ -165,10 +197,12 @@ jobs:
           TEST_RESULT="${{ needs.test.result }}"
           SECRETS_RESULT="${{ needs.secrets.result }}"
           TRIVY_RESULT="${{ needs.trivy.result }}"
+          AUDIT_RESULT="${{ needs.audit.result }}"
           if [[ "$LINT_RESULT" == "success" || "$LINT_RESULT" == "skipped" ]] && \
              [[ "$TEST_RESULT" == "success" || "$TEST_RESULT" == "skipped" ]] && \
              [[ "$SECRETS_RESULT" == "success" || "$SECRETS_RESULT" == "skipped" ]] && \
-             [[ "$TRIVY_RESULT" == "success" || "$TRIVY_RESULT" == "skipped" ]]; then
+             [[ "$TRIVY_RESULT" == "success" || "$TRIVY_RESULT" == "skipped" ]] && \
+             [[ "$AUDIT_RESULT" == "success" || "$AUDIT_RESULT" == "skipped" ]]; then
             echo "success=true" >> $GITHUB_OUTPUT
             echo "All executed checks passed!"
           else

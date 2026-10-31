@@ -63,29 +63,70 @@ pip install -e .
 
 ## Quick Start
 
+### Controlling a Device by Address
+
 ```python
 import asyncio
-from casambi_classic_ble import CasambiScanner
+from casambi_classic_ble import CasambiDevice
 
 async def main():
-    # Scan for Classic Casambi devices
-    scanner = CasambiScanner()
-    devices = await scanner.scan(duration=5.0)
-    
-    if devices:
-        # Connect to first device
-        light = devices[0]
-        await light.connect()
-        
-        # Control the light
-        await light.turn_on()
+    # Direct connection to your target Casambi node by address
+    # (Or pass an existing Bleak BLEDevice object from Home Assistant)
+    light = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+    await light.connect()
+
+    try:
+        # Control a specific unit (e.g. Unit 1)
+        await light.turn_on(unit_id=1)
         await light.set_level(unit_id=1, level=0.75)
         await light.set_color_temperature(unit_id=1, temp_kelvin=3000)
-        
-        # Disconnect
+        await light.set_rgb(unit_id=1, r=255, g=200, b=100)
+
+        # Or control all units across the network (omit unit_id or use broadcast)
+        # await light.turn_on()
+        # await light.turn_off()
+    finally:
         await light.disconnect()
 
 asyncio.run(main())
+```
+
+### Discovery & Bring-Your-Own-Scanner (Home Assistant)
+
+```python
+import asyncio
+from casambi_classic_ble import CasambiScanner, CasambiDevice
+
+async def main():
+    scanner = CasambiScanner()
+    devices = await scanner.scan(duration=5.0)
+
+    # Filter for your specific device by Bluetooth address rather than connecting blindly
+    target_addr = "AA:BB:CC:DD:EE:FF"
+    target = next((d for d in devices if d.address.upper() == target_addr), None)
+
+    if target:
+        await target.connect()
+        await target.turn_on(unit_id=1)
+        await target.disconnect()
+
+asyncio.run(main())
+```
+
+### Passive State Tracking & Subscriptions
+
+```python
+from casambi_classic_ble import CasambiDevice
+
+def on_state_update(state: dict):
+    print(f"Light state updated: Unit {state.get('id')} - ON: {state.get('on')} ({state.get('level_percent')}%)")
+
+device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+
+# Feed passive manufacturer data (0x03C3) from an external scanner or callback
+# Repeated duplicate frames are safely ignored
+def on_ble_advertisement_received(mfr_data: bytes):
+    device.update_from_advertisement(mfr_data=mfr_data)
 ```
 
 ## Development

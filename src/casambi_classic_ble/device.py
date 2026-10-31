@@ -9,7 +9,11 @@ from typing import Any, Callable, Dict, Optional, Union
 from bleak import BleakClient, BleakScanner, BLEDevice
 
 from .constants import CasambiCommands, CasambiUUIDs
-from .exceptions import CasambiDeviceError
+from .exceptions import (
+    CasambiCommandError,
+    CasambiConnectionError,
+    CasambiDeviceError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,8 @@ class CasambiDevice:
         self._disconnect_callback: Optional[Callable[[], None]] = None
         self._write_lock: asyncio.Lock = asyncio.Lock()
         self.last_state: dict[str, Any] = {}
+        self._state_callbacks: list[Callable[[dict[str, Any]], None]] = []
+        self._last_notified_state: Optional[tuple[bool, float]] = None
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
         self._session_key: Optional[bytes] = None
@@ -46,6 +52,18 @@ class CasambiDevice:
     def set_disconnected_callback(self, *, callback: Callable[[], None]) -> None:
         """Set callback invoked on unexpected disconnection"""
         self._disconnect_callback = callback
+
+    def register_state_callback(
+        self, *, callback: Callable[[dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """Register a callback for state changes (with duplicate suppression). Returns unsubscribe callable."""
+        self._state_callbacks.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._state_callbacks:
+                self._state_callbacks.remove(callback)
+
+        return unsubscribe
 
     def _on_bleak_disconnect(self, client: BleakClient) -> None:
         """Internal callback invoked when Bleak drops connection"""
@@ -169,10 +187,13 @@ class CasambiDevice:
                     pass
             return False
 
-    async def authenticate(self, *, password: str) -> bool:
+    async def authenticate(self, *, password: str) -> None:
         """Authenticate with the network password"""
         if not password:
-            return True
+            return
+
+        if not self.is_connected or not self.client:
+            raise CasambiConnectionError("Device not connected")
 
         # Conservative Classic Handshake: Plain MD5 hash
         # Some 26.x hardware in Classic mode is VERY sensitive to prefix bytes
@@ -181,7 +202,7 @@ class CasambiDevice:
 
         logger.info("Authenticating with network password (Standard Classic)...")
         # Command 0x07 is the standard authentication opcode
-        return await self._send_command(command=CasambiCommands.AUTHENTICATE, payload=password_hash)
+        await self._send_command(command=CasambiCommands.AUTHENTICATE, payload=password_hash)
 
     async def disconnect(self) -> None:
         """Disconnect from the device"""
@@ -254,11 +275,12 @@ class CasambiDevice:
         flags = mfr_data[6]
         is_on = bool(flags & 0x01)
         level_byte = mfr_data[7]
+        dim_level = round(level_byte / 255.0, 3)
 
-        status = {
+        status: dict[str, Any] = {
             "id": int(mfr_data[0]),  # Approximation of unit ID if needed, though usually internal
             "on": is_on,
-            "dimLevel": round(level_byte / 255.0, 3),
+            "dimLevel": dim_level,
             "level_percent": round((level_byte / 255.0) * 100),
             "source": "passive_adv",
         }
@@ -274,6 +296,15 @@ class CasambiDevice:
                 self._notification_callback(bytearray(mfr_data))
             except Exception as err:
                 logger.warning(f"Error in notification callback: {err}", exc_info=True)
+
+        current_state_tuple = (is_on, dim_level)
+        if self._last_notified_state != current_state_tuple:
+            self._last_notified_state = current_state_tuple
+            for cb in list(self._state_callbacks):
+                try:
+                    cb(status)
+                except Exception as err:
+                    logger.warning(f"Error in state change callback: {err}", exc_info=True)
 
         return status
 
@@ -306,11 +337,10 @@ class CasambiDevice:
         """Set callback for notifications"""
         self._notification_callback = callback
 
-    async def _send_command(self, *, command: int, payload: bytes = b"") -> bool:
+    async def _send_command(self, *, command: int, payload: bytes = b"") -> None:
         """Send a command to the device, serialized with write lock"""
         if not self.is_connected or not self.client:
-            logger.error("Device not connected")
-            return False
+            raise CasambiConnectionError("Device not connected")
 
         async with self._write_lock:
             try:
@@ -330,34 +360,41 @@ class CasambiDevice:
 
                 await self.client.write_gatt_char(self._control_uuid, packet, response=True)
                 logger.debug(f"Successfully wrote {len(packet)} bytes")
-                return True
 
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.error(f"Failed to send command: {e}")
-                return False
+                logger.error(f"Failed to send command {command:#02x}: {e}")
+                raise CasambiCommandError(f"Failed to send command {command:#02x}: {e}") from e
 
-    async def turn_on(self, *, unit_id: int = 1) -> bool:
-        """Turn on a light unit (using Set Level 100%)"""
+    async def turn_on(self, *, unit_id: int | None = None) -> None:
+        """Turn on a light unit or all units if unit_id is None."""
+        if unit_id is None:
+            await self.turn_on_broadcast()
+            return
+
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         logger.info(f"Switching Unit {unit_id} to state: ON")
         # For 26.xx firmware, Set Level (0x03) + 2-byte Unit + 1-byte Level is most reliable
         # Format: [0x03] [Unit Low] [Unit High] [0xFF]
         payload = struct.pack("<HB", unit_id, 0xFF)
-        return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def turn_off(self, *, unit_id: int = 1) -> bool:
-        """Turn off a light unit (using Set Level 0%)"""
+    async def turn_off(self, *, unit_id: int | None = None) -> None:
+        """Turn off a light unit or all units if unit_id is None."""
+        if unit_id is None:
+            await self.turn_off_broadcast()
+            return
+
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         logger.info(f"Switching Unit {unit_id} to state: OFF")
         # Format: [0x03] [Unit Low] [Unit High] [0x00]
         payload = struct.pack("<HB", unit_id, 0x00)
-        return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def turn_on_by_address(self, *, address: str) -> bool:
+    async def turn_on_by_address(self, *, address: str) -> None:
         """Turn on a light unit by its 6-byte address (Internal ID)"""
         # Command 0x81 (Turn On Long Address). format: [0x81] [6-byte address]
         logger.info(f"Switching Unit at address {address} to state: ON (Direct mode)")
@@ -365,12 +402,11 @@ class CasambiDevice:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:
                 raise ValueError("Invalid address length")
-            return await self._send_command(command=0x81, payload=addr_bytes)
         except Exception as e:
-            logger.error(f"Failed to send by address: {e}")
-            return False
+            raise CasambiDeviceError(f"Invalid address '{address}': {e}") from e
+        await self._send_command(command=0x81, payload=addr_bytes)
 
-    async def turn_off_by_address(self, *, address: str) -> bool:
+    async def turn_off_by_address(self, *, address: str) -> None:
         """Turn off a light unit by its 6-byte address (Internal ID)"""
         # Command 0x82 (Turn Off Long Address)
         logger.info(f"Switching Unit at address {address} to state: OFF (Direct mode)")
@@ -378,23 +414,22 @@ class CasambiDevice:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:
                 raise ValueError("Invalid address length")
-            return await self._send_command(command=0x82, payload=addr_bytes)
         except Exception as e:
-            logger.error(f"Failed to send by address: {e}")
-            return False
+            raise CasambiDeviceError(f"Invalid address '{address}': {e}") from e
+        await self._send_command(command=0x82, payload=addr_bytes)
 
-    async def turn_on_broadcast(self) -> bool:
+    async def turn_on_broadcast(self) -> None:
         """Turn on all units in range (Broadcast)"""
         logger.info("Switching ALL reachable units to state: ON (Broadcast)")
         # Broadcast Unit ID is usually 0xFFFF (or 0xFFFE for groups)
         payload = struct.pack("<HB", 0xFFFF, 0xFF)
-        return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def turn_off_broadcast(self) -> bool:
+    async def turn_off_broadcast(self) -> None:
         """Turn off all units in range (Broadcast)"""
         logger.info("Switching ALL reachable units to state: OFF (Broadcast)")
         payload = struct.pack("<HB", 0xFFFF, 0x00)
-        return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
     async def get_state(self, *, unit_id: int) -> None:
         """Request state for a specific unit using multiple methods"""
@@ -412,18 +447,21 @@ class CasambiDevice:
         logger.debug(f"Requesting state via 0x0F for unit {unit_id}")
         await self._send_command(command=CasambiCommands.GET_UNIT_STATE, payload=payload1)
 
-    async def set_level(self, *, unit_id: int, level: float) -> bool:
-        """Set brightness level (0.0 - 1.0)"""
-        if not (0 <= unit_id <= 255):
-            raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
+    async def set_level(self, *, level: float, unit_id: int | None = None) -> None:
+        """Set brightness level (0.0 - 1.0) for a unit or all units if unit_id is None."""
         if not (0.0 <= level <= 1.0):
             raise CasambiDeviceError(f"level must be between 0.0 and 1.0, got {level}")
         level_byte = int(round(level * 255))
-        # Classic Command 0x03 (Set Level) + 1-byte unit ID + 1-byte level
-        payload = struct.pack("BB", unit_id, level_byte)
-        return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
+        if unit_id is None:
+            payload = struct.pack("<HB", 0xFFFF, level_byte)
+        else:
+            if not (0 <= unit_id <= 255):
+                raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
+            # Classic Command 0x03 (Set Level) + 1-byte unit ID + 1-byte level
+            payload = struct.pack("BB", unit_id, level_byte)
+        await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def set_color_temperature(self, *, unit_id: int, temp_kelvin: int) -> bool:
+    async def set_color_temperature(self, *, temp_kelvin: int, unit_id: int = 1) -> None:
         """Set color temperature (2000-6500K)"""
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
@@ -432,9 +470,9 @@ class CasambiDevice:
                 f"temp_kelvin must be between 2000 and 6500K, got {temp_kelvin}"
             )
         payload = struct.pack("<BH", unit_id, temp_kelvin)
-        return await self._send_command(command=CasambiCommands.SET_COLOR_TEMP, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_COLOR_TEMP, payload=payload)
 
-    async def set_rgb(self, *, unit_id: int, r: int, g: int, b: int) -> bool:
+    async def set_rgb(self, *, r: int, g: int, b: int, unit_id: int = 1) -> None:
         """Set RGB color (0-255 for each channel)"""
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
@@ -444,7 +482,7 @@ class CasambiDevice:
                     f"RGB channel '{channel_name}' must be between 0 and 255, got {val}"
                 )
         payload = struct.pack("BBBB", unit_id, r, g, b)
-        return await self._send_command(command=CasambiCommands.SET_RGB, payload=payload)
+        await self._send_command(command=CasambiCommands.SET_RGB, payload=payload)
 
     async def get_device_info(self) -> Dict[str, str]:
         """Read device information"""

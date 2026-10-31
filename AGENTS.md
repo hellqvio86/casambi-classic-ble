@@ -89,7 +89,7 @@ Write clean, idiomatic, and modern Python (Python `>= 3.12`). Code should look a
 
 5. **Mandatory Named (Keyword) Arguments:**
    - **Always use named arguments for function and method calls.** Never pass ambiguous positional arguments (e.g., use `scanner.scan(duration=5.0)` instead of `scanner.scan(5.0)`, `device.set_level(unit_id=1, level=0.75)` instead of `device.set_level(1, 0.75)`).
-   - In public APIs, function signatures, and method definitions, prefer **keyword-only arguments** using `*` (e.g. `def scan(self, *, duration: float = 10.0) -> list[CasambiDevice]:` or `def set_level(self, *, unit_id: int, level: float) -> bool:`) to enforce named arguments at the call site.
+   - In public APIs, function signatures, and method definitions, prefer **keyword-only arguments** using `*` (e.g. `def scan(self, *, duration: float = 10.0) -> list[CasambiDevice]:` or `def set_level(self, *, level: float, unit_id: int | None = None) -> None:`) to enforce named arguments at the call site.
    - Tests and fixtures must strictly adhere to calling methods with explicit named arguments.
 
 6. **Formatting & Documentation:**

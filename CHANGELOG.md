@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking Changes
+- `CasambiDevice` command methods (`turn_on`, `turn_off`, `set_level`, `set_color_temperature`, `set_rgb`, `turn_on_by_address`, `turn_off_by_address`, `turn_on_broadcast`, `turn_off_broadcast`, `authenticate`) now return `None` on success and raise explicit domain exceptions (`CasambiCommandError`, `CasambiConnectionError`, `CasambiDeviceError`) on failure instead of returning sentinel boolean flags.
+- Command methods accept `unit_id: int | None = None` where `None` indicates targeting all units (broadcast) across the network.
+
+### Added
+- Added `CasambiDevice.register_state_callback` with duplicate frame suppression and isolated exception handling.
+- Added comprehensive protocol golden-vector test fixtures covering all opcodes in `CasambiCommands`.
+- Added `docs/protocol.md` detailing GATT services, opcodes, frame structures, and packet capture workflows.
+- Serialized all GATT writes through `asyncio.Lock` to prevent interleaving packet chunks.
+- Made `CasambiDevice.connect()` idempotent and `disconnect()` safe when unconnected.
+- Supported injecting external `BleakClient` and `BLEDevice` into `CasambiDevice` with `bleak_retry_connector`.
+
+
 ## [0.3.2] - 2026-10-31
 
 ### Fixed

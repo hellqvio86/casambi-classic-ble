@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from casambi_classic_ble import CasambiDevice
-from casambi_classic_ble.exceptions import CasambiDeviceError
+from casambi_classic_ble.exceptions import (
+    CasambiCommandError,
+    CasambiConnectionError,
+    CasambiDeviceError,
+)
 
 
 class TestCasambiDevice:
@@ -152,9 +156,7 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        result = await device.turn_on(unit_id=12)
-
-        assert result is True
+        await device.turn_on(unit_id=12)
         mock_bleak_client.write_gatt_char.assert_called_once()
 
     @pytest.mark.asyncio
@@ -163,9 +165,7 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        result = await device.turn_off(unit_id=12)
-
-        assert result is True
+        await device.turn_off(unit_id=12)
         mock_bleak_client.write_gatt_char.assert_called_once()
 
     @pytest.mark.asyncio
@@ -174,9 +174,7 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        result = await device.set_level(unit_id=12, level=0.75)
-
-        assert result is True
+        await device.set_level(unit_id=12, level=0.75)
         mock_bleak_client.write_gatt_char.assert_called_once()
 
     @pytest.mark.asyncio
@@ -185,9 +183,7 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        result = await device.authenticate(password="secret")
-
-        assert result is True
+        await device.authenticate(password="secret")
         mock_bleak_client.write_gatt_char.assert_called_once()
 
     def test_parse_status(self):
@@ -225,12 +221,14 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        assert await device.turn_on_by_address(address="AA:BB:CC:DD:EE:FF") is True
-        assert await device.turn_off_by_address(address="AA:BB:CC:DD:EE:FF") is True
+        await device.turn_on_by_address(address="AA:BB:CC:DD:EE:FF")
+        await device.turn_off_by_address(address="AA:BB:CC:DD:EE:FF")
 
-        # Invalid address length
-        assert await device.turn_on_by_address(address="AA:BB") is False
-        assert await device.turn_off_by_address(address="AA:BB") is False
+        # Invalid address length raises CasambiDeviceError
+        with pytest.raises(CasambiDeviceError, match="Invalid address"):
+            await device.turn_on_by_address(address="AA:BB")
+        with pytest.raises(CasambiDeviceError, match="Invalid address"):
+            await device.turn_off_by_address(address="AA:BB")
 
     @pytest.mark.asyncio
     async def test_broadcast_commands(self, mock_bleak_client):
@@ -238,8 +236,9 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        assert await device.turn_on_broadcast() is True
-        assert await device.turn_off_broadcast() is True
+        await device.turn_on_broadcast()
+        await device.turn_off_broadcast()
+        assert mock_bleak_client.write_gatt_char.call_count == 2
 
     @pytest.mark.asyncio
     async def test_set_color_temp_and_rgb(self, mock_bleak_client):
@@ -247,8 +246,9 @@ class TestCasambiDevice:
         device.client = mock_bleak_client
         device.is_connected = True
 
-        assert await device.set_color_temperature(unit_id=1, temp_kelvin=3500) is True
-        assert await device.set_rgb(unit_id=1, r=255, g=128, b=0) is True
+        await device.set_color_temperature(unit_id=1, temp_kelvin=3500)
+        await device.set_rgb(unit_id=1, r=255, g=128, b=0)
+        assert mock_bleak_client.write_gatt_char.call_count == 2
 
     @pytest.mark.asyncio
     async def test_get_state(self, mock_bleak_client):
@@ -293,7 +293,7 @@ class TestCasambiDevice:
         device._session_key = b"\x01\x02\x03\x04"
 
         # Send command with payload
-        assert await device._send_command(command=0x03, payload=b"\x10\x20") is True
+        await device._send_command(command=0x03, payload=b"\x10\x20")
         mock_bleak_client.write_gatt_char.assert_called_once()
 
     def test_notification_callback(self):
@@ -430,3 +430,125 @@ class TestCasambiDevice:
 
         with pytest.raises(asyncio.CancelledError):
             await device.set_level(unit_id=1, level=0.5)
+
+    @pytest.mark.asyncio
+    async def test_commands_raise_when_disconnected(self):
+        """Commands must raise CasambiConnectionError when called on disconnected device."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.is_connected = False
+
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.turn_on(unit_id=1)
+
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.turn_off(unit_id=1)
+
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.set_level(unit_id=1, level=0.5)
+
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.authenticate(password="secret")
+
+    @pytest.mark.asyncio
+    async def test_command_ble_failure_raises_command_error(self, mock_bleak_client):
+        """BLE write failure during command execution raises CasambiCommandError."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=RuntimeError("BLE write failed"))
+
+        with pytest.raises(CasambiCommandError, match="Failed to send command"):
+            await device.set_level(unit_id=1, level=0.5)
+
+    @pytest.mark.asyncio
+    async def test_unit_targeting_all_vs_single(self, mock_bleak_client):
+        """Verifies targeting all units (broadcast) vs single unit produces exact frames."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+
+        written_packets = []
+
+        async def fake_write(char_uuid, data, response=True):
+            written_packets.append(data)
+
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=fake_write)
+
+        # 1. turn_on() without unit_id targets all units (broadcast 0xFFFF)
+        await device.turn_on()
+        assert written_packets[-1].hex() == "03ffffff"
+
+        # 2. turn_on(unit_id=5) targets unit 5
+        await device.turn_on(unit_id=5)
+        assert written_packets[-1].hex() == "030500ff"
+
+        # 3. turn_off() without unit_id targets all units (broadcast 0xFFFF)
+        await device.turn_off()
+        assert written_packets[-1].hex() == "03ffff00"
+
+        # 4. turn_off(unit_id=5) targets unit 5
+        await device.turn_off(unit_id=5)
+        assert written_packets[-1].hex() == "03050000"
+
+        # 5. set_level() without unit_id targets all units
+        await device.set_level(level=0.5)
+        assert written_packets[-1].hex() == "03ffff80"
+
+        # 6. set_level(unit_id=5, level=0.5) targets unit 5
+        await device.set_level(unit_id=5, level=0.5)
+        assert written_packets[-1].hex() == "030580"
+
+    def test_state_subscription_and_duplicate_suppression(self):
+        """State subscribers receive updates on state changes and suppress duplicate frames."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        updates = []
+
+        unsubscribe = device.register_state_callback(callback=lambda state: updates.append(state))
+
+        # Frame 1: Light ON (0x01), Level 255 (0xFF), rolling counter 0x01
+        mfr_data_1 = bytes.fromhex("aabbccddeeff") + bytes([0x01, 0xFF, 0x01])
+        device.update_from_advertisement(mfr_data=mfr_data_1)
+        assert len(updates) == 1
+        assert updates[-1]["on"] is True
+        assert updates[-1]["level_percent"] == 100
+
+        # Frame 2: Identical state with rolling counter incremented to 0x02 (must be suppressed)
+        mfr_data_2 = bytes.fromhex("aabbccddeeff") + bytes([0x01, 0xFF, 0x02])
+        device.update_from_advertisement(mfr_data=mfr_data_2)
+        assert len(updates) == 1  # No duplicate dispatched!
+
+        # Frame 3: State change (dimmed to 50%)
+        mfr_data_3 = bytes.fromhex("aabbccddeeff") + bytes([0x01, 0x80, 0x03])
+        device.update_from_advertisement(mfr_data=mfr_data_3)
+        assert len(updates) == 2
+        assert updates[-1]["level_percent"] == 50
+
+        # Frame 4: State change (turned OFF)
+        mfr_data_4 = bytes.fromhex("aabbccddeeff") + bytes([0x00, 0x00, 0x04])
+        device.update_from_advertisement(mfr_data=mfr_data_4)
+        assert len(updates) == 3
+        assert updates[-1]["on"] is False
+
+        # Unsubscribe removes callback
+        unsubscribe()
+        mfr_data_5 = bytes.fromhex("aabbccddeeff") + bytes([0x01, 0xFF, 0x05])
+        device.update_from_advertisement(mfr_data=mfr_data_5)
+        assert len(updates) == 3  # Not called after unsubscribe
+
+    def test_state_subscription_isolated_exceptions(self):
+        """Errors in subscriber callbacks are safely isolated and do not prevent other subscribers."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        successful_updates = []
+
+        def failing_cb(state):
+            raise RuntimeError("Subscriber explosion")
+
+        def working_cb(state):
+            successful_updates.append(state)
+
+        device.register_state_callback(callback=failing_cb)
+        device.register_state_callback(callback=working_cb)
+
+        mfr_data = bytes.fromhex("aabbccddeeff") + bytes([0x01, 0xFF])
+        # Should not raise exception
+        result = device.update_from_advertisement(mfr_data=mfr_data)
+        assert result is not None
+        assert len(successful_updates) == 1

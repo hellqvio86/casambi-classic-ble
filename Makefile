@@ -48,8 +48,8 @@ venv:
 	@echo "Virtual environment created!"
 
 test:
-	@echo "Running pytest..."
-	uv run pytest src/tests/ -v --tb=short
+	@echo "Running pytest with coverage..."
+	uv run pytest src/tests/ -v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing
 
 typecheck:
 	@echo "Running mypy typecheck..."
@@ -83,7 +83,7 @@ clean:
 	@echo "Cleaning up..."
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	rm -rf .pytest_cache .coverage coverage.xml htmlcov/ .mypy_cache dist/ build/ casambi_classic_ble.egg-info
+	rm -rf .pytest_cache .coverage coverage.xml htmlcov/ .mypy_cache .ruff_cache dist/ build/ src/casambi_classic_ble.egg-info
 
 all: secrets trivy audit lint test
 	@echo "All checks passed successfully!"

@@ -3,6 +3,8 @@
 Bluetooth Low Energy library for Casambi classic firmware lighting control.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from ._casambi import Casambi
 from ._discover import discover
 from ._unit import (
@@ -29,7 +31,11 @@ from .exceptions import (
 )
 from .scanner import CasambiScanner
 
-__version__ = "0.3.2"
+try:
+    __version__: str = version("casambi-classic-ble")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
+
 __author__ = "Lukas Kempf, Olof Hellqvist"
 
 __all__ = [

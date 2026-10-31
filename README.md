@@ -6,34 +6,27 @@
 [![Firmware](https://img.shields.io/badge/firmware-Classic%20Casambi-orange.svg)](https://casambi.com)
 [![Fork](https://img.shields.io/badge/fork-Casambi%20Classic%20BLE-orange.svg)](https://github.com/hellqvio86/casambi-classic-ble)
 
-A Python library for controlling Casambi lighting devices running **Classic firmware** via Bluetooth Low Energy (BLE).
+An asynchronous Python library for controlling Casambi lighting devices running **Classic firmware** via Bluetooth Low Energy (BLE).
+
+> [!NOTE]
+> **Disclaimer:** This is an independent open-source project and is not affiliated with, endorsed by, or supported by Casambi Technologies Oy. Casambi is a registered trademark of Casambi Technologies Oy.
 
 > [!IMPORTANT]
-> **Standalone Fork Dedicated Exclusively to Casambi Classic Firmware**  
-> This project is a specialized fork of the open-source Casambi BLE Python ecosystem (diverging from [lkempf/casambi-bt](https://github.com/lkempf/casambi-bt)).  
-> 
-> While upstream `casambi-bt` focuses on modern **Evolution** firmware networks, **this fork is dedicated specifically to legacy Casambi Classic networks**. Classic firmware uses distinct BLE GATT services (`0xFE3D`, `0xFE4D`), different cryptographic challenges, and passive manufacturer advertisement beacons (`0x03C3` / `963`).
-> 
-> - **Classic Networks (This Fork):** Use **`casambi-classic-ble`** ([hellqvio86/casambi-classic-ble](https://github.com/hellqvio86/casambi-classic-ble)).
-> - **Evolution Networks:** Use upstream [lkempf/casambi-bt](https://github.com/lkempf/casambi-bt).
+> **Primary Downstream Consumer:** This library serves as the core BLE engine for [`casambi-classic-bt-hass`](https://github.com/hellqvio86/casambi-classic-bt-hass), the Home Assistant integration for Classic Casambi meshes.
 
 ---
 
-## Why This Fork? (Classic vs. Evolution)
+## Classic vs. Evolution Firmware
 
-Casambi networks run on one of two major firmware profiles: **Evolution** or **Classic**.
+Casambi networks operate under one of two major radio profiles: **Evolution** or **Classic**.
 
-- **Evolution Networks:** Newer Casambi installations use the Evolution profile, which has different encryption, UUIDs, and network protocols. Upstream [casambi-bt](https://github.com/lkempf/casambi-bt) is designed around Evolution.
-- **Classic Networks (This Fork's Exclusive Focus):** Many existing installations and older Casambi modules remain on Classic firmware. Upgrading is not always feasible or desirable. This fork is tailored to:
-  - Communicate with Classic BLE GATT services and characteristics (`FE3D` and `FE4D`).
-  - Parse Classic passive BLE advertisement frames (Manufacturer ID `0x03C3` / `963`) to monitor on/off state and brightness levels without polling.
-  - Send direct BLE commands tailored to Classic device firmware (switching, dimming, color temperature, and RGB).
-  - Provide optional Casambi Cloud API support for synchronizing network topologies and states.
+### How to check your network profile
+Open the official **Casambi App** → Select your network → **More** (`...`) → **Network setup** → **Network configuration** → Look at **Radio profile**:
+- **Classic**: Use **`casambi-classic-ble`** (this library).
+- **Evolution**: Use upstream [`casambi-bt`](https://github.com/lkempf/casambi-bt).
 
-> [!TIP]
-> **Which library should you use?**
-> - For **Classic** firmware networks: Use **`casambi-classic-ble`** ([hellqvio86/casambi-classic-ble](https://github.com/hellqvio86/casambi-classic-ble)).
-> - For **Evolution** firmware networks: Use [lkempf/casambi-bt](https://github.com/lkempf/casambi-bt).
+### Why this specialized fork exists
+Classic networks rely on different GATT services (`0xFE3D`, `0xFE4D`), different challenge-handshakes, and passive manufacturer advertisement beacons (`0x03C3` / `963`). This library provides native, standalone support for Classic devices without cloud lock-in.
 
 ---
 
@@ -41,11 +34,13 @@ Casambi networks run on one of two major firmware profiles: **Evolution** or **C
 
 - 🎯 **Classic-First Architecture:** Tailored specifically for Casambi Classic firmware devices.
 - 🔍 **BLE Discovery & Scanner:** Discover Classic Casambi nodes and decode passive manufacturer advertisement data.
-- 📡 **Passive State Tracking:** Read on/off and dimming levels directly from BLE advertisements in real-time.
+- 📡 **Passive State Tracking:** Read on/off and dimming levels directly from BLE advertisements with duplicate frame suppression.
 - 🔌 **Direct BLE Control:** Connect directly over Bluetooth Low Energy without mandatory cloud intermediaries.
-- 💡 **Lighting Controls:** Turn lights on/off and set brightness dim levels.
-- 🎨 **RGB & Color Temperature:** Adjust RGB colors and color temperature (Kelvin).
-- ☁️ **Cloud Sync (Optional):** Integration with the Casambi Cloud API for session handling and topology inspection.
+- 💡 **Lighting Controls:** Turn lights on/off, set brightness dim levels, color temperature (Kelvin), and RGB colors.
+- 🛡️ **Robust Concurrency:** Serialized GATT writes via `asyncio.Lock` and domain exception raising.
+- ☁️ **Cloud Sync (Optional):** Optional Casambi Cloud API and WebSocket bridge for topology sync.
+
+---
 
 ## Installation
 
@@ -61,28 +56,32 @@ cd casambi-classic-ble
 pip install -e .
 ```
 
+---
+
 ## Quick Start
 
-### Controlling a Device by Address
+### 1. Controlling a Device by Address
 
 ```python
 import asyncio
 from casambi_classic_ble import CasambiDevice
 
 async def main():
-    # Direct connection to your target Casambi node by address
-    # (Or pass an existing Bleak BLEDevice object from Home Assistant)
+    # Target your node by Bluetooth address (or pass a Bleak BLEDevice from Home Assistant)
     light = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
     await light.connect()
 
     try:
+        # Optional: Authenticate if your network requires a password
+        # await light.authenticate(password="your_network_password")
+
         # Control a specific unit (e.g. Unit 1)
         await light.turn_on(unit_id=1)
         await light.set_level(unit_id=1, level=0.75)
         await light.set_color_temperature(unit_id=1, temp_kelvin=3000)
         await light.set_rgb(unit_id=1, r=255, g=200, b=100)
 
-        # Or control all units across the network (omit unit_id or use broadcast)
+        # Or control all units across the mesh (omit unit_id or use broadcast)
         # await light.turn_on()
         # await light.turn_off()
     finally:
@@ -91,7 +90,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Discovery & Bring-Your-Own-Scanner (Home Assistant)
+### 2. Discovery & Bring-Your-Own-Scanner (Home Assistant)
 
 ```python
 import asyncio
@@ -102,9 +101,7 @@ async def main():
     devices = await scanner.scan(duration=5.0)
 
     # Filter for your specific device by Bluetooth address rather than connecting blindly
-    target_addr = "AA:BB:CC:DD:EE:FF"
-    target = next((d for d in devices if d.address.upper() == target_addr), None)
-
+    target = next((d for d in devices if d.address.upper() == "AA:BB:CC:DD:EE:FF"), None)
     if target:
         await target.connect()
         await target.turn_on(unit_id=1)
@@ -113,42 +110,62 @@ async def main():
 asyncio.run(main())
 ```
 
-### Passive State Tracking & Subscriptions
+### 3. Passive State Tracking & Subscriptions
 
 ```python
 from casambi_classic_ble import CasambiDevice
 
-def on_state_update(state: dict):
-    print(f"Light state updated: Unit {state.get('id')} - ON: {state.get('on')} ({state.get('level_percent')}%)")
-
 device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
-# Feed passive manufacturer data (0x03C3) from an external scanner or callback
-# Repeated duplicate frames are safely ignored
-def on_ble_advertisement_received(mfr_data: bytes):
+def on_state_change(state: dict):
+    print(f"Unit {state['id']}: {'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
+
+# Register subscription callback (automatically deduplicates identical frames)
+unsubscribe = device.register_state_callback(callback=on_state_change)
+
+# Feed raw manufacturer data (0x03C3) received from Bleak or Home Assistant
+def on_advertisement(mfr_data: bytes):
     device.update_from_advertisement(mfr_data=mfr_data)
 ```
 
-## Development
+### 4. Optional Cloud API Bridge
 
-Using `make`:
+```python
+import asyncio
+from casambi_classic_ble import CasambiCloud
 
-```bash
-# Set up development environment (syncs dependencies and installs git hooks)
-make setup
+async def main():
+    async with CasambiCloud(
+        api_key="your_api_key",
+        user_email="user@example.com",
+        user_password="password",
+    ) as cloud:
+        networks = await cloud.get_networks()
+        print("Discovered cloud networks:", networks)
 
-# Or install the git commit hook directly
-make hooks
-
-# Run tests
-make test
-
-# Run linting and checks
-make lint
-
-# Run all checks
-make all
+asyncio.run(main())
 ```
+
+---
+
+## Hardware Compatibility & Limitations
+
+- **Supported Hardware:** Casambi CBM-001, CBM-002, CBM-003, ASD, Ted, and OEM fixtures running Classic firmware (v26.x or earlier).
+- **Concurrent Connections:** Casambi mesh nodes typically allow only **one active BLE connection** at a time. If the official Casambi mobile app is actively connected to a node, connection attempts from other clients will be rejected until the app disconnects.
+- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, and Wireshark capture guides.
+
+---
+
+## Troubleshooting
+
+- **Linux / BlueZ Permissions:** Non-root users may need permission to access Bluetooth adapters via D-Bus:
+  ```bash
+  sudo usermod -a -G bluetooth $USER
+  ```
+- **BlueZ Version:** BlueZ `>= 5.64` is strongly recommended for reliable BLE GATT operation and connection stability.
+- **Connection Drops / Timeouts:** If connecting directly, ensure the target node is within adequate RF range and no mobile app has an active session open. Using [`casambi-classic-bt-hass`](https://github.com/hellqvio86/casambi-classic-bt-hass) leverages Home Assistant's proxying Bluetooth architecture automatically.
+
+---
 
 ## Acknowledgements & Attribution
 

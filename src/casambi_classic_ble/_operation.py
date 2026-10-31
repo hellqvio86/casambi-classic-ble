@@ -116,4 +116,4 @@ class OperationsContextClassic(OperationsContext):
         packet[0] = (len(packet) + 239) & 0xFF
 
         self._origin += 1
-        return packet
+        return bytes(packet)

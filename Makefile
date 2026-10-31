@@ -1,4 +1,4 @@
-.PHONY: help setup test lint format coverage clean all hooks build publish secrets trivy
+.PHONY: help setup test lint format coverage clean all hooks build publish secrets trivy typecheck
 
 help:
 	@echo "Available commands:"
@@ -6,8 +6,9 @@ help:
 	@echo "  make hooks     - Install git commit hook (runs secrets, lint, and test before commit)"
 	@echo "  make secrets   - Run TruffleHog secret scanning"
 	@echo "  make trivy     - Run Trivy vulnerability scanning"
+	@echo "  make typecheck - Run mypy static type analysis"
 	@echo "  make test      - Run tests"
-	@echo "  make lint      - Run linting"
+	@echo "  make lint      - Run linting and typechecking"
 	@echo "  make format    - Format code"
 	@echo "  make coverage  - Run coverage"
 	@echo "  make build     - Build distribution packages using uv"
@@ -44,10 +45,15 @@ test:
 	@echo "Running pytest..."
 	uv run pytest src/tests/ -v --tb=short
 
+typecheck:
+	@echo "Running mypy typecheck..."
+	uv run mypy src/
+
 lint:
-	@echo "Running linting..."
+	@echo "Running linting and typechecking..."
 	uv run ruff check src/
 	uv run ruff format --check src/
+	uv run mypy src/
 
 format:
 	@echo "Formatting code..."

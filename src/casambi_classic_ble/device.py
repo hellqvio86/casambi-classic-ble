@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import logging
 import struct
-from typing import Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 from bleak import BleakClient, BleakScanner, BLEDevice
 
@@ -28,8 +28,8 @@ class CasambiDevice:
 
         self.client: Optional[BleakClient] = None
         self.is_connected = False
-        self._notification_callback: Optional[Callable] = None
-        self.last_state = {}
+        self._notification_callback: Optional[Callable[[bytearray], None]] = None
+        self.last_state: dict[str, Any] = {}
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
         self._session_key: Optional[bytes] = None
@@ -140,7 +140,7 @@ class CasambiDevice:
         # Command 0x07 is the standard authentication opcode
         return await self._send_command(command=CasambiCommands.AUTHENTICATE, payload=password_hash)
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         """Disconnect from the device"""
         if self.client and self.is_connected:
             try:
@@ -162,12 +162,12 @@ class CasambiDevice:
         try:
             data = await self.client.read_gatt_char(self._status_uuid)
             logger.info(f"==> DIRECT READ STATUS: {data.hex()}")
-            return data
+            return bytes(data)
         except Exception as e:
             logger.error(f"Failed to read status char: {e}")
             return None
 
-    def _notification_handler(self, sender, data: bytearray):
+    def _notification_handler(self, sender: Any, data: bytearray) -> None:
         """Handle incoming notifications from device"""
         hex_data = data.hex()
         logger.info(f"==> BLE NOTIFICATION: {hex_data} (from {sender})")
@@ -183,10 +183,10 @@ class CasambiDevice:
         if self._notification_callback:
             self._notification_callback(data)
 
-    def update_from_advertisement(self, *, mfr_data: bytes):
+    def update_from_advertisement(self, *, mfr_data: bytes) -> Optional[Dict[str, Any]]:
         """Update device state from passive advertisement data (ID 963)"""
         if len(mfr_data) < 8:
-            return
+            return None
 
         # Verify this data belongs to us (first 6 bytes match address digits)
         addr_clean = self.address.replace(":", "").lower()
@@ -197,7 +197,7 @@ class CasambiDevice:
             # Check if Reversed
             rev_mfr = "".join(reversed([mfr_id_hex[i : i + 2] for i in range(0, 12, 2)]))
             if rev_mfr not in addr_clean:
-                return
+                return None
 
         flags = mfr_data[6]
         is_on = bool(flags & 0x01)
@@ -218,11 +218,11 @@ class CasambiDevice:
 
         if self._notification_callback:
             # Wrap in bytearray to satisfy callback expectations
-            self._notification_callback(mfr_data)
+            self._notification_callback(bytearray(mfr_data))
 
         return status
 
-    def parse_status(self, *, data: Union[bytearray, bytes]) -> Dict:
+    def parse_status(self, *, data: Union[bytearray, bytes]) -> Dict[str, Any]:
         """
         Parse raw notification data into a dictionary.
         Enriched to match Casambi Cloud API structure.
@@ -232,7 +232,7 @@ class CasambiDevice:
 
         opcode = data[0]
         # Casambi standard status fields
-        status = {
+        status: Dict[str, Any] = {
             "opcode": f"{opcode:#02x}",
             "id": data[1],  # unitId
             "on": data[2] > 0,
@@ -247,7 +247,7 @@ class CasambiDevice:
 
         return status
 
-    def set_notification_callback(self, *, callback: Callable):
+    def set_notification_callback(self, *, callback: Callable[[bytearray], None]) -> None:
         """Set callback for notifications"""
         self._notification_callback = callback
 
@@ -332,7 +332,7 @@ class CasambiDevice:
         payload = struct.pack("<HB", 0xFFFF, 0x00)
         return await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def get_state(self, *, unit_id: int):
+    async def get_state(self, *, unit_id: int) -> None:
         """Request state for a specific unit using multiple methods"""
         # Method 1: Global Get State (0x14)
         payload1 = struct.pack("B", unit_id)

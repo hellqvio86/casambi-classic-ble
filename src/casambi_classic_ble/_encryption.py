@@ -1,5 +1,4 @@
 import logging
-from binascii import b2a_hex as b2a
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.ciphers import Cipher
@@ -29,11 +28,11 @@ class Encryptor:
 
     def encryptThenMac(self, packet: bytes, nonce: bytes, headerLen: int = 4) -> bytes:
         self._logger.debug(
-            f"Encrypting packet: {b2a(packet)} of len {len(packet)} with nonce {b2a(nonce)}"
+            f"Encrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
         )
         packet = bytes(packet)
         packet = packet[:headerLen] + self._encryptInternal(packet[headerLen:], nonce)
-        self._logger.debug(f"Encrypted packet: {b2a(packet)}")
+        self._logger.debug(f"Encrypted packet: {packet.hex()}")
 
         cmacCipher = CMAC(self._aes)
         cmacCipher.update(packet)
@@ -42,14 +41,14 @@ class Encryptor:
 
     def decryptAndVerify(self, packet: bytes, nonce: bytes, headerLen: int = 4) -> bytes:
         self._logger.debug(
-            f"Decrypting packet: {b2a(packet)} of len {len(packet)} with nonce {b2a(nonce)}"
+            f"Decrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
         )
         packet = bytes(packet)
         ciphertext, packetMac = packet[0:-16], packet[-16:]
 
         # Always decrypt for timing reasons
         plaintext = self._encryptInternal(ciphertext[headerLen:], nonce)
-        self._logger.debug(f"Decrypted package: {b2a(plaintext)}")
+        self._logger.debug(f"Decrypted package: {plaintext.hex()}")
 
         cmacCipher = CMAC(self._aes)
         cmacCipher.update(ciphertext)
@@ -60,13 +59,13 @@ class Encryptor:
         if len(nonce) != 16:
             raise ValueError("Nonce must be 16 bytes long.")
 
-        nonce = bytearray(nonce)
+        nonce_buf = bytearray(nonce)
 
         counter = 0
         result = b""
         for i in range(0, len(packet), 16):
-            nonce[12:] = counter.to_bytes(4, "little")
-            block = _encHelper(self._blockCipher, nonce)
+            nonce_buf[12:] = counter.to_bytes(4, "little")
+            block = _encHelper(self._blockCipher, bytes(nonce_buf))
             rem = min(i + 16, len(packet))
             result += _xor(block[: rem - i], packet[i:rem])
             counter += 1
@@ -112,7 +111,7 @@ class ClassicEncryptor:
 
         if not result:
             self._logger.warning(
-                f"Signature verification failed. Computed: {b2a(computedMac)}, packet: {b2a(pckMac)}"
+                f"Signature verification failed. Computed: {computedMac.hex()}, packet: {pckMac.hex()}"
             )
             raise InvalidSignature("Signature verification failed.")
 

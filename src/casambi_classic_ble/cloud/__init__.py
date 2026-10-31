@@ -36,15 +36,15 @@ class CasambiCloud:
         self._api: Optional[CasambiCloudAPI] = None
         self._ws: Optional[CasambiCloudWebsocket] = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "CasambiCloud":
         self._session = aiohttp.ClientSession()
         self._api = CasambiCloudAPI(api_key=self.api_key, session=self._session)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.close()
 
-    async def close(self):
+    async def close(self) -> None:
         """Close connection resources."""
         if self._ws:
             await self._ws.close()
@@ -78,20 +78,25 @@ class CasambiCloud:
             email=self.email, password=self.network_password
         )
 
-    async def get_network_information(self) -> Dict[str, Any]:
-        return await self._api.get_network_information()
+    def _ensure_api(self) -> CasambiCloudAPI:
+        if not self._api:
+            raise CasambiCloudApiException("Session not created. Call create_session first.")
+        return self._api
 
-    async def get_network_state(self) -> Dict[str, Any]:
-        return await self._api.get_network_state()
+    async def get_network_information(self) -> dict[str, Any]:
+        return await self._ensure_api().get_network_information()
 
-    async def get_unit_list(self) -> List[Dict[str, Any]]:
-        return await self._api.get_unit_list()
+    async def get_network_state(self) -> dict[str, Any]:
+        return await self._ensure_api().get_network_state()
 
-    async def get_unit_state(self, *, unit_id: int) -> Dict[str, Any]:
-        return await self._api.get_unit_state(unit_id=unit_id)
+    async def get_unit_list(self) -> list[dict[str, Any]]:
+        return await self._ensure_api().get_unit_list()
 
-    async def get_scenes_list(self) -> List[Dict[str, Any]]:
-        return await self._api.get_scenes_list()
+    async def get_unit_state(self, *, unit_id: int) -> dict[str, Any]:
+        return await self._ensure_api().get_unit_state(unit_id=unit_id)
+
+    async def get_scenes_list(self) -> list[dict[str, Any]]:
+        return await self._ensure_api().get_scenes_list()
 
     async def ws_open(self) -> bool:
         """Open websocket connection."""
@@ -111,17 +116,17 @@ class CasambiCloud:
             return []
         return await self._ws.receive_messages(timeout=timeout)
 
-    async def ws_close(self):
+    async def ws_close(self) -> None:
         if self._ws:
             await self._ws.close()
 
-    async def turn_unit_on(self, *, unit_id: int):
+    async def turn_unit_on(self, *, unit_id: int) -> None:
         await self.set_unit_value(unit_id=unit_id, value=1.0)
 
-    async def turn_unit_off(self, *, unit_id: int):
+    async def turn_unit_off(self, *, unit_id: int) -> None:
         await self.set_unit_value(unit_id=unit_id, value=0.0)
 
-    async def set_unit_value(self, *, unit_id: int, value: float):
+    async def set_unit_value(self, *, unit_id: int, value: float) -> None:
         if not self._ws:
             raise CasambiCloudApiException("Websocket connection required for control.")
         target_controls = {"Dimmer": {"value": value}}

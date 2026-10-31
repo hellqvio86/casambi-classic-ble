@@ -1,6 +1,5 @@
 import logging
 import warnings
-from binascii import b2a_hex as b2a
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from dataclasses import dataclass, field
 from enum import Enum, EnumMeta, unique
@@ -743,7 +742,7 @@ class Unit:
                 f"EXT/Elements sensor update: packet_type={packet_type}, value={sensor_value}"
             )
 
-        _LOGGER.debug(f"Parsed {b2a(value)} to {self.state.__repr__()}")
+        _LOGGER.debug(f"Parsed {value.hex()} to {self.state!r}")
 
 
 @dataclass

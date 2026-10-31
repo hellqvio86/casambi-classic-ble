@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from binascii import b2a_hex as b2a
 from collections.abc import Callable
 from copy import copy
 from itertools import pairwise
@@ -500,7 +499,7 @@ class Casambi:
                 ConnectionState.NONE,
             )
 
-        self._logger.debug(f"Sending operation {opcode.name} with payload {b2a(state)}.")
+        self._logger.debug(f"Sending operation {opcode.name} with payload {state.hex()}.")
 
         opPkt = self._opContext.prepareOperation(opcode, target, state)
 
@@ -521,7 +520,7 @@ class Casambi:
         if packetType == IncomingPacketType.UnitState:
             unitData = cast(dict[str, Any], data)
             self._logger.debug(
-                f"Handling changed state {b2a(unitData['state'])} for unit {unitData['id']}"
+                f"Handling changed state {unitData['state'].hex()} for unit {unitData['id']}"
             )
 
             found = False

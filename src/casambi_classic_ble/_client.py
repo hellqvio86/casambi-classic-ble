@@ -3,7 +3,6 @@ import contextlib
 import logging
 import struct
 from abc import ABC, abstractmethod
-from binascii import b2a_hex as b2a
 from collections.abc import Callable
 from hashlib import sha256
 from typing import Any
@@ -66,7 +65,7 @@ class CasambiClient(ABC):
         self._outPacketCount = 0
         self._inPacketCount = 0
 
-        self._callbackQueue: asyncio.Queue[tuple[BleakGATTCharacteristic, bytes]]
+        self._callbackQueue: asyncio.Queue[tuple[BleakGATTCharacteristic, bytearray]]
         self._callbackTask: asyncio.Task[None] | None = None
 
         self._address_or_devive = address_or_device
@@ -157,7 +156,7 @@ class CasambiClient(ABC):
             self._disconnectedCallback()
         self._connectionState = ConnectionState.NONE
 
-    def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
         self._callbackQueue.put_nowait((handle, data))
 
     async def _processCallbacks(self) -> None:
@@ -179,9 +178,11 @@ class CasambiClient(ABC):
         except TimeoutError:
             self._logger.info("Callback processing task cancelled.")
 
-    def _callbackMulitplexer(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _callbackMulitplexer(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         self._logger.debug(
-            f"[CASAMBI_RAW_PACKET] Callback on handle {handle} in state {self._connectionState}: {b2a(data)}"
+            f"[CASAMBI_RAW_PACKET] Callback on handle {handle} in state {self._connectionState}: {data.hex()}"
         )
 
         if self._connectionState == ConnectionState.CONNECTED:
@@ -192,14 +193,14 @@ class CasambiClient(ABC):
             self._inPacketCount += 1
             self._establishedNotifyCallback(handle, data)
         else:
-            self._logger.warning(f"Unhandled notify in state {self._connectionState}: {b2a(data)}")
+            self._logger.warning(f"Unhandled notify in state {self._connectionState}: {data.hex()}")
 
     @abstractmethod
     async def exchangeKey(self, retries: int = 2) -> None:
         pass
 
     @abstractmethod
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         pass
 
     @abstractmethod
@@ -207,11 +208,13 @@ class CasambiClient(ABC):
         pass
 
     @abstractmethod
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         pass
 
     @abstractmethod
-    def _establishedNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _establishedNotifyCallback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         pass
 
     async def send(self, packet: bytes, retries: int = 2) -> None:
@@ -219,7 +222,7 @@ class CasambiClient(ABC):
 
         await self._activityLock.acquire()
         try:
-            self._logger.debug(f"Sending packet {b2a(packet)} with counter {self._outPacketCount}")
+            self._logger.debug(f"Sending packet {packet.hex()} with counter {self._outPacketCount}")
             retry = 0
             while True:
                 try:
@@ -315,7 +318,7 @@ class CasambiClientEvolution(CasambiClient):
                         raise BluetoothError("Failed to initiate GATT read.") from exc
                     self._logger.debug("Transient error reading auth characteristic, retrying...")
                     await asyncio.sleep(0.5)
-            self._logger.debug(f"Got {b2a(firstResp)}")
+            self._logger.debug(f"Got {firstResp.hex()}")
 
             # Check type and protocol version
             if not (firstResp[0] == 0x1 and firstResp[1] == self._network.protocolVersion):
@@ -334,7 +337,7 @@ class CasambiClientEvolution(CasambiClient):
                         "Unexpected answer from device! Wrong device or protocol version?"
                         "If this happens after an update please create an issue."
                         "First response: %s",
-                        b2a(firstResp),
+                        firstResp.hex(),
                     )
 
             # Parse device info
@@ -342,7 +345,7 @@ class CasambiClientEvolution(CasambiClient):
                 ">BHH16s", firstResp, 2
             )
             self._logger.debug(
-                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, nonce {b2a(self._nonce)}"
+                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, nonce {self._nonce.hex()}"
             )
 
             # Device will initiate key exchange, so listen for that
@@ -390,7 +393,7 @@ class CasambiClientEvolution(CasambiClient):
                 raise ProtocolError("Failed to negotiate key!")
             else:
                 self._logger.info("Key exchange sucessful")
-                self._encryptor = Encryptor(self._key)
+                self._encryptor = Encryptor(bytes(self._key))
 
                 # Skip auth if the network doesn't use a key.
                 if self._network.keyStore.getKey():
@@ -400,7 +403,7 @@ class CasambiClientEvolution(CasambiClient):
         finally:
             self._activityLock.release()
 
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         if data[0] == 0x2:
             # Parse device pubkey
             x, y = struct.unpack_from("<32s32s", data, 1)
@@ -435,12 +438,12 @@ class CasambiClientEvolution(CasambiClient):
                 self._notifySignal.set()
             else:
                 self._logger.error(
-                    f"Unexpected package length for key exchange response: {b2a(data)}"
+                    f"Unexpected package length for key exchange response: {data.hex()}"
                 )
                 self._connectionState = ConnectionState.ERROR
                 self._notifySignal.set()
         else:
-            self._logger.error(f"Unexcpedted package type in {b2a(data)}.")
+            self._logger.error(f"Unexcpedted package type in {data.hex()}.")
             self._connectionState = ConnectionState.ERROR
             self._notifySignal.set()
 
@@ -465,7 +468,7 @@ class CasambiClientEvolution(CasambiClient):
             hashFcnt.update(self._nonce)
             hashFcnt.update(self._key)
             authDig = hashFcnt.digest()
-            self._logger.debug(f"Auth digest: {b2a(authDig)}")
+            self._logger.debug(f"Auth digest: {authDig.hex()}")
 
             # Send auth packet
             authPacket = int.to_bytes(1, 4, "little")
@@ -491,14 +494,14 @@ class CasambiClientEvolution(CasambiClient):
         finally:
             self._activityLock.release()
 
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         self._logger.info("Processing authentication response...")
 
         # TODO: Verify counter
         self._inPacketCount += 1
 
         try:
-            self._encryptor.decryptAndVerify(data, data[:4] + self._nonce[4:])
+            self._encryptor.decryptAndVerify(bytes(data), bytes(data[:4]) + self._nonce[4:])
         except InvalidSignature:
             self._logger.fatal("Invalid signature for auth response!")
             self._connectionState = ConnectionState.ERROR
@@ -509,22 +512,26 @@ class CasambiClientEvolution(CasambiClient):
 
         self._notifySignal.set()
 
-    def _establishedNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _establishedNotifyCallback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         # TODO: Check incoming counter and direction flag
 
         try:
-            packetContents = self._encryptor.decryptAndVerify(data, data[:4] + self._nonce[4:])
+            packetContents = self._encryptor.decryptAndVerify(
+                bytes(data), bytes(data[:4]) + self._nonce[4:]
+            )
         except InvalidSignature:
             # We only drop packets with invalid signature here instead of going into an error state
-            self._logger.error(f"Invalid signature for packet {b2a(data)}!")
+            self._logger.error(f"Invalid signature for packet {data.hex()}!")
             return
 
         packetType = packetContents[0]
-        self._logger.debug(f"Incoming data of type {packetType}: {b2a(packetContents)}")
+        self._logger.debug(f"Incoming data of type {packetType}: {packetContents.hex()}")
 
         # Log decrypted packet with special marker
         self._logger.debug(
-            f"[CASAMBI_DECRYPTED] Type={packetType} #{self._inPacketCount}: {b2a(packetContents)}"
+            f"[CASAMBI_DECRYPTED] Type={packetType} #{self._inPacketCount}: {packetContents.hex()}"
         )
 
         if packetType == IncomingPacketType.UnitState:
@@ -543,7 +550,7 @@ class CasambiClientEvolution(CasambiClient):
 
     def _parseUnitStates(self, data: bytes) -> None:
         self._logger.debug("Parsing incoming unit states...")
-        self._logger.debug(f"Incoming unit state: {b2a(data)}")
+        self._logger.debug(f"Incoming unit state: {data.hex()}")
 
         pos = 0
         oldPos = 0
@@ -571,7 +578,7 @@ class CasambiClientEvolution(CasambiClient):
                 pos += (flags >> 6) & 3  # Padding?
 
                 self._logger.debug(
-                    f"Parsed state: Id {id}, prio {prio}, online {online}, on {on}, state {b2a(state)}1"
+                    f"Parsed state: Id {id}, prio {prio}, online {online}, on {on}, state {state.hex()}1"
                 )
 
                 self._dataCallback(
@@ -582,14 +589,14 @@ class CasambiClientEvolution(CasambiClient):
                 oldPos = pos
         except IndexError:
             self._logger.error(
-                f"Ran out of data while parsing unit state! Remaining data {b2a(data[oldPos:])} in {b2a(data)}."
+                f"Ran out of data while parsing unit state! Remaining data {data[oldPos:].hex()} in {data.hex()}."
             )
 
     async def _sendInternal(self, packet: bytes) -> None:
         counter = int.to_bytes(self._outPacketCount, 4, "little")
         headerPaket = counter + b"\x07" + packet
 
-        self._logger.debug(f"Packet with header: {b2a(headerPaket)}")
+        self._logger.debug(f"Packet with header: {headerPaket.hex()}")
 
         await self._writeEncPacket(headerPaket, self._outPacketCount, CASA_AUTH_CHAR_UUID)
 
@@ -674,7 +681,7 @@ class CasambiClientClassic(CasambiClient):
                         raise BluetoothError("Failed to initiate GATT read.") from exc
                     self._logger.debug("Transient error reading auth characteristic, retrying...")
                     await asyncio.sleep(0.5)
-            self._logger.debug(f"Got {b2a(firstResp)}")
+            self._logger.debug(f"Got {firstResp.hex()}")
 
             # Parse device info
             (
@@ -695,7 +702,7 @@ class CasambiClientClassic(CasambiClient):
                 )
 
             self._logger.debug(
-                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash {b2a(self._connhash)}"
+                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash {self._connhash.hex()}"
             )
 
             self._logger.debug("Starting notify")
@@ -711,7 +718,7 @@ class CasambiClientClassic(CasambiClient):
         finally:
             self._activityLock.release()
 
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
 
     async def authenticate(self) -> None:
@@ -729,11 +736,13 @@ class CasambiClientClassic(CasambiClient):
         finally:
             self._activityLock.release()
 
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
+    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
 
-    def _establishedNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes) -> None:
-        self._logger.debug(f"Incoming data: {b2a(data)}")
+    def _establishedNotifyCallback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
+        self._logger.debug(f"Incoming data: {data.hex()}")
 
         unitId = data[0]
         if unitId == 0x00:
@@ -781,7 +790,7 @@ class CasambiClientClassic(CasambiClient):
                 state = data[statePos : statePos + stateLen]
 
                 self._logger.debug(
-                    f"Parsed state: Len {stateLen}, id {unitId}, prio {prio}, online {online}, extra1 {extra1Val}, extra2 {extra2Val}, state {b2a(state)}."
+                    f"Parsed state: Len {stateLen}, id {unitId}, prio {prio}, online {online}, extra1 {extra1Val}, extra2 {extra2Val}, state {state.hex()}."
                 )
 
                 # It's ok to pass anything as on. The value will only be used if no appropriate controls are available.
@@ -804,7 +813,7 @@ class CasambiClientClassic(CasambiClient):
         else:
             outPacket = b"\x02" + self._visitorEncryptor.digest(outPacket, self._connhash)
 
-        self._logger.debug(f"Packet with header: {b2a(outPacket)}")
+        self._logger.debug(f"Packet with header: {outPacket.hex()}")
 
         try:
             await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, outPacket)

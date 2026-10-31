@@ -4,9 +4,11 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import websockets
+from websockets.asyncio.client import ClientConnection
+from websockets.typing import Subprotocol
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -14,12 +16,12 @@ _LOGGER = logging.getLogger(__name__)
 class CasambiCloudWebsocket:
     """Handles Websocket communication with Casambi Cloud"""
 
-    def __init__(self, *, api_key: str, network_id: str, session_id: str, wire_id: int = 1):
+    def __init__(self, *, api_key: str, network_id: str, session_id: str, wire_id: int = 1) -> None:
         self.api_key = api_key
         self.network_id = network_id
         self.session_id = session_id
         self.wire_id = wire_id
-        self.web_sock: Optional[websockets.WebSocketClientProtocol] = None
+        self.web_sock: ClientConnection | None = None
         self.connected = False
 
     async def open(self) -> bool:
@@ -36,7 +38,7 @@ class CasambiCloudWebsocket:
             "type": 1,
         }
 
-        self.web_sock = await websockets.connect(url, subprotocols=[self.api_key])
+        self.web_sock = await websockets.connect(url, subprotocols=[Subprotocol(self.api_key)])
         await self.web_sock.send(json.dumps(message))
 
         try:
@@ -54,7 +56,7 @@ class CasambiCloudWebsocket:
 
         return False
 
-    async def send_command(self, *, unit_id: int, target_controls: Dict[str, Any]):
+    async def send_command(self, *, unit_id: int, target_controls: dict[str, Any]) -> None:
         """Send a control command over websocket."""
         if not self.web_sock:
             raise RuntimeError("Websocket not connected")
@@ -67,9 +69,9 @@ class CasambiCloudWebsocket:
         }
         await self.web_sock.send(json.dumps(message))
 
-    async def receive_messages(self, *, timeout: float = 0.5) -> List[Dict[str, Any]]:
+    async def receive_messages(self, *, timeout: float = 0.5) -> list[dict[str, Any]]:
         """Receive pending messages from websocket."""
-        messages = []
+        messages: list[dict[str, Any]] = []
         if not self.web_sock:
             return messages
 
@@ -90,7 +92,7 @@ class CasambiCloudWebsocket:
                 break
         return messages
 
-    async def close(self):
+    async def close(self) -> None:
         """Close websocket connection."""
         if self.web_sock:
             message = {"method": "close", "wire": self.wire_id}

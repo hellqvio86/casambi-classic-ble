@@ -1,9 +1,10 @@
 # Changelog
 
-## [0.3.2] - 2026-10-31
+## [0.3.3] - 2026-10-31
 
 ### Changed
-- Migrated `UnitControlType` to `IntEnum` for cross-package and integer interoperability.
+- Promoted package classifier to `Development Status :: 4 - Beta`.
+- Restated supported hardware in documentation to exclusively reflect verified production hardware (Vadsbo LD220WCM, LD220WCM_onoff, Casambi CBU-PWM4 RGBW, AIMOTION GLOW).
 - Command methods (`turn_on`, `turn_off`, `set_level`, `set_color_temperature`, `set_rgb`, `turn_on_by_address`, `turn_off_by_address`, `turn_on_broadcast`, `turn_off_broadcast`, `authenticate`) now return `None` on success and raise explicit domain exceptions (`CasambiCommandError`, `CasambiConnectionError`, `CasambiDeviceError`) on failure.
 - Command methods accept `unit_id: int | None = None` where `None` indicates targeting all units (broadcast) across the network.
 - Replaced upstream `CasambiBtError` naming with `CasambiClassicBleError` (retaining `CasambiBtError` backwards-compatibility alias).
@@ -16,9 +17,13 @@
 - Made `CasambiDevice.connect()` idempotent and `disconnect()` safe when unconnected.
 - Supported injecting external `BleakClient` and `BLEDevice` into `CasambiDevice` with `bleak_retry_connector`.
 - Added comprehensive project governance files (`SECURITY.md`, `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/`).
-- Added legacy pickle normalization for `types.pck` cache to guarantee `UnitControlType` instances match when unpickling fixtures cached by previous library versions.
+- Added example script automated testing suite (`test_examples.py`).
+
+## [0.3.2] - 2026-10-31
 
 ### Fixed
+- Migrated `UnitControlType` to `IntEnum` for cross-package and integer interoperability.
+- Added legacy pickle normalization for `types.pck` cache to guarantee `UnitControlType` instances match when unpickling fixtures cached by previous library versions.
 - Safe enum comparison in `UnitType.get_control`, `Unit.setStateFromBytes`, and `Casambi.setUnitState`.
 
 ## [0.3.1] - 2026-10-31

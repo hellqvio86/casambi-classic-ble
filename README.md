@@ -150,7 +150,12 @@ asyncio.run(main())
 
 ## Hardware Compatibility & Limitations
 
-- **Supported Hardware:** Casambi CBM-001, CBM-002, CBM-003, ASD, Ted, and OEM fixtures running Classic firmware (v26.x or earlier).
+- **Supported Hardware (Verified in Production):**
+  - **Vadsbo LD220WCM** (Trailing-edge phase-cut dimmer)
+  - **Vadsbo LD220WCM_onoff** (On/off relay module)
+  - **Casambi CBU-PWM4 RGBW** (4-channel PWM dimmer)
+  - **AIMOTION GLOW** (Pendant luminaire)
+  - *All running Casambi Classic firmware (v26.x or earlier).*
 - **Concurrent Connections:** Casambi mesh nodes typically allow only **one active BLE connection** at a time. If the official Casambi mobile app is actively connected to a node, connection attempts from other clients will be rejected until the app disconnects.
 - **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, and Wireshark capture guides.
 

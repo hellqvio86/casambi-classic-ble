@@ -37,8 +37,8 @@ body:
     id: hardware_model
     attributes:
       label: Hardware / Fixture Model
-      description: e.g., Casambi CBM-001, CBM-002, CBM-003, ASD, Ted, OEM Driver.
-      placeholder: "CBM-002"
+      description: e.g., Vadsbo LD220WCM, Vadsbo LD220WCM_onoff, Casambi CBU-PWM4 RGBW, AIMOTION GLOW.
+      placeholder: "Vadsbo LD220WCM"
     validations:
       required: false
 

@@ -42,21 +42,21 @@ venv:
 
 test:
 	@echo "Running pytest..."
-	uv run pytest tests/ -v --tb=short
+	uv run pytest src/tests/ -v --tb=short
 
 lint:
 	@echo "Running linting..."
-	uv run ruff check src/ tests/
-	uv run ruff format --check src/ tests/
+	uv run ruff check src/
+	uv run ruff format --check src/
 
 format:
 	@echo "Formatting code..."
-	uv run ruff format src/ tests/
-	uv run ruff check --fix src/ tests/
+	uv run ruff format src/
+	uv run ruff check --fix src/
 
 coverage:
 	@echo "Running coverage..."
-	uv run pytest tests/ --cov=casambi_classic_ble --cov-report=html --cov-report=term-missing
+	uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=html --cov-report=term-missing
 
 build:
 	@echo "Building package distributions with uv..."

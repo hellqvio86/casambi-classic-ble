@@ -19,17 +19,17 @@ Guidelines and operational knowledge for AI coding assistants (Antigravity Agent
 ```
 casambi-classic-ble/
 ├── src/
-│   └── casambi_classic_ble/    # Core library source code
-│       ├── __init__.py         # Exports CasambiDevice, CasambiScanner, CasambiCloud
-│       ├── constants.py        # UUIDs, opcodes, BLE service constants
-│       ├── device.py           # CasambiDevice implementation (BLE connect, control, state)
-│       ├── scanner.py          # CasambiScanner implementation (discovery via Bleak)
-│       ├── exceptions.py       # Library-specific exceptions
-│       └── cloud/              # Casambi Cloud REST & WebSocket bridge
-│           ├── __init__.py     # CasambiCloud context manager & interface
-│           ├── api.py          # REST API sessions & endpoints
-│           └── websocket.py    # Real-time WebSocket connection to Casambi Bridge
-├── tests/                      # Pytest unit tests (mocked BLE and HTTP/WS)
+│   ├── casambi_classic_ble/    # Core library source code
+│   │   ├── __init__.py         # Exports CasambiDevice, CasambiScanner, CasambiCloud
+│   │   ├── constants.py        # UUIDs, opcodes, BLE service constants
+│   │   ├── device.py           # CasambiDevice implementation (BLE connect, control, state)
+│   │   ├── scanner.py          # CasambiScanner implementation (discovery via Bleak)
+│   │   ├── exceptions.py       # Library-specific exceptions
+│   │   └── cloud/              # Casambi Cloud REST & WebSocket bridge
+│   │       ├── __init__.py     # CasambiCloud context manager & interface
+│   │       ├── api.py          # REST API sessions & endpoints
+│   │       └── websocket.py    # Real-time WebSocket connection to Casambi Bridge
+│   └── tests/                  # Pytest unit tests (mocked BLE and HTTP/WS)
 ├── examples/                   # Example usage scripts (scanning, simple connection)
 ├── .github/
 │   ├── workflows/
@@ -103,10 +103,10 @@ Write clean, idiomatic, and modern Python (Python `>= 3.12`). Code should look a
 **All code must be covered with `pytest` unit tests.** Untested code, uncovered branches, or PRs lacking test assertions are not accepted.
 
 1. **Comprehensive Coverage Requirements:**
-   - Every public method, edge case, protocol opcode parser, and error branch must be accompanied by unit tests in [`tests/`](file:///home/hellqvio/git/casambi-classic-ble/tests/).
+   - Every public method, edge case, protocol opcode parser, and error branch must be accompanied by unit tests in [`src/tests/`](file:///home/hellqvio/git/casambi-classic-ble/src/tests/).
    - Always run test suite coverage before committing:
      ```bash
-     uv run pytest tests/ --cov=casambi_classic_ble --cov-report=term-missing
+     uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=term-missing
      ```
    - Write tests for both positive ("happy path") and negative (timeouts, disconnects, malformed packet payloads, auth failures) scenarios.
 
@@ -127,11 +127,11 @@ Always run these before completing any changes or committing:
 uv sync --all-extras
 
 # Run Ruff linter and formatter checks
-uv run ruff check src/ tests/
-uv run ruff format --check src/ tests/
+uv run ruff check src/
+uv run ruff format --check src/
 
 # Run pytest unit test suite with coverage
-uv run pytest tests/ --cov=casambi_classic_ble --cov-report=term-missing
+uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=term-missing
 
 # Build package distributions (wheel and sdist)
 uv build

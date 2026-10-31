@@ -17,12 +17,21 @@ ENV/
 
 # Testing and coverage
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
-.mypy_cache/
 
-# Local files
-test.log
+# Local configuration, secrets, logs, and artifacts
+*.log
+*.pem
+*.key
+.env
+.env.*
 casambi.yaml
+casambi*.local.yaml
 todo.md
+sbom.spdx.json
+changelog.md

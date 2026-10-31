@@ -15,6 +15,8 @@ def _xor(data: bytes, key: bytes) -> bytes:
 def _encHelper(cipher: Cipher, input: bytes) -> bytes:
     assert len(input) % 16 == 0
 
+    # False positive: AES-ECB block cipher is mandated by Casambi Classic BLE radio protocol
+    # codeql[py/weak-cryptographic-algorithm]
     context = cipher.encryptor()
     return context.update(input) + context.finalize()
 
@@ -22,6 +24,8 @@ def _encHelper(cipher: Cipher, input: bytes) -> bytes:
 class Encryptor:
     def __init__(self, key: bytes) -> None:
         self._aes = AES(key)
+        # False positive: AES-ECB block cipher is mandated by Casambi Classic BLE radio protocol
+        # codeql[py/weak-cryptographic-algorithm]
         self._blockCipher = Cipher(AES(key), mode=ECB())
         self._cmacCipher = Cipher(AES(key), mode=CBC(b"\0" * 16))
         self._logger = logging.getLogger(__name__)

@@ -198,6 +198,8 @@ class CasambiDevice:
 
         # Conservative Classic Handshake: Plain MD5 hash
         # Some 26.x hardware in Classic mode is VERY sensitive to prefix bytes
+        # False positive: MD5 password hash is mandated by Casambi Classic BLE radio protocol
+        # codeql[py/weak-sensitive-data-hashing]
         password_hash = hashlib.md5(password.encode("utf-8")).digest()
         self._session_key = None  # Disable XOR for standard Classic attempt
 

@@ -1,0 +1,12 @@
+# CodeQL configuration for casambi-classic-ble
+# Hardware protocol exceptions:
+# The Casambi Classic BLE radio protocol strictly mandates:
+# 1. AES-ECB block cipher for packet encryption
+# 2. MD5 hashing for network password authentication
+name: "Casambi Classic BLE CodeQL Config"
+
+query-filters:
+  - exclude:
+      id: py/weak-cryptographic-algorithm
+  - exclude:
+      id: py/weak-sensitive-data-hashing

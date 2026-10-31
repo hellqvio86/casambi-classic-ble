@@ -264,6 +264,10 @@ jobs:
             fi
             if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
               echo "Version bump detected: $PREVIOUS_VERSION -> $CURRENT_VERSION"
+              if ! grep -q "^## \[$CURRENT_VERSION\]" CHANGELOG.md; then
+                echo "Error: CHANGELOG.md is missing heading '## [$CURRENT_VERSION]'"
+                exit 1
+              fi
               echo "changed=true" >> $GITHUB_OUTPUT
               echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
             else
@@ -322,18 +326,26 @@ jobs:
         if: steps.check_version.outputs.changed == 'true'
         shell: bash
         run: |
-          git fetch --tags --force
-          TAGS=$(git tag --sort=-v:refname | grep -E '^v[0-9]')
-          TAG_COUNT=$(echo "$TAGS" | grep -c -E '^v[0-9]' || true)
-          echo "## Changelog" > changelog.md
-          echo "" >> changelog.md
-          if [ "$TAG_COUNT" -le 1 ]; then
-            git log --pretty=format:"* %s (%h)" --no-merges >> changelog.md
-          else
-            PREV_TAG=$(echo "$TAGS" | sed -n '2p')
-            git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges >> changelog.md
+          TARGET_VERSION="${{ steps.check_version.outputs.version }}"
+          # Extract matching section from CHANGELOG.md if present
+          if grep -q "^## \[$TARGET_VERSION\]" CHANGELOG.md; then
+            sed -n "/^## \[$TARGET_VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d' > changelog.md
           fi
-          echo "" >> changelog.md
+
+          if [ ! -s changelog.md ]; then
+            git fetch --tags --force
+            TAGS=$(git tag --sort=-v:refname | grep -E '^v[0-9]')
+            TAG_COUNT=$(echo "$TAGS" | grep -c -E '^v[0-9]' || true)
+            echo "## Changelog" > changelog.md
+            echo "" >> changelog.md
+            if [ "$TAG_COUNT" -le 1 ]; then
+              git log --pretty=format:"* %s (%h)" --no-merges >> changelog.md
+            else
+              PREV_TAG=$(echo "$TAGS" | sed -n '2p')
+              git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges >> changelog.md
+            fi
+            echo "" >> changelog.md
+          fi
 
       - name: Create Release Draft
         if: steps.check_version.outputs.changed == 'true'

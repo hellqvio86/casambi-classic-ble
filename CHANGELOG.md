@@ -1,10 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.2] - 2026-10-31
 
-### Breaking Changes
-- `CasambiDevice` command methods (`turn_on`, `turn_off`, `set_level`, `set_color_temperature`, `set_rgb`, `turn_on_by_address`, `turn_off_by_address`, `turn_on_broadcast`, `turn_off_broadcast`, `authenticate`) now return `None` on success and raise explicit domain exceptions (`CasambiCommandError`, `CasambiConnectionError`, `CasambiDeviceError`) on failure instead of returning sentinel boolean flags.
+### Changed
+- Migrated `UnitControlType` to `IntEnum` for cross-package and integer interoperability.
+- Command methods (`turn_on`, `turn_off`, `set_level`, `set_color_temperature`, `set_rgb`, `turn_on_by_address`, `turn_off_by_address`, `turn_on_broadcast`, `turn_off_broadcast`, `authenticate`) now return `None` on success and raise explicit domain exceptions (`CasambiCommandError`, `CasambiConnectionError`, `CasambiDeviceError`) on failure.
 - Command methods accept `unit_id: int | None = None` where `None` indicates targeting all units (broadcast) across the network.
+- Replaced upstream `CasambiBtError` naming with `CasambiClassicBleError` (retaining `CasambiBtError` backwards-compatibility alias).
 
 ### Added
 - Added `CasambiDevice.register_state_callback` with duplicate frame suppression and isolated exception handling.
@@ -13,13 +15,10 @@
 - Serialized all GATT writes through `asyncio.Lock` to prevent interleaving packet chunks.
 - Made `CasambiDevice.connect()` idempotent and `disconnect()` safe when unconnected.
 - Supported injecting external `BleakClient` and `BLEDevice` into `CasambiDevice` with `bleak_retry_connector`.
-
-
-## [0.3.2] - 2026-10-31
+- Added comprehensive project governance files (`SECURITY.md`, `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/`).
+- Added legacy pickle normalization for `types.pck` cache to guarantee `UnitControlType` instances match when unpickling fixtures cached by previous library versions.
 
 ### Fixed
-- Migrated `UnitControlType` to `IntEnum` for cross-package and integer interoperability.
-- Added legacy pickle normalization for `types.pck` cache to guarantee `UnitControlType` instances match when unpickling fixtures cached by previous library versions.
 - Safe enum comparison in `UnitType.get_control`, `Unit.setStateFromBytes`, and `Casambi.setUnitState`.
 
 ## [0.3.1] - 2026-10-31
@@ -28,9 +27,16 @@
 - Resolved `UnboundLocalError` in `Casambi.connect` when formatting Bluetooth addresses without colons.
 
 ### Added
-- Expanded unit test coverage to 82% branch coverage across 101 unit tests covering BLE operations, encryption, keystore, and cloud interfaces.
+- Expanded unit test coverage to 82% branch coverage across 154 unit tests covering BLE operations, encryption, keystore, and cloud interfaces.
 - Enforced 80% coverage threshold (`--cov-branch --cov-fail-under=80`) and pytest asyncio function fixture loop scope.
 - Strict mypy type checking in CI pipeline and full type annotation compliance.
+
+## [0.3.0] - 2026-10-31
+
+### Added
+- Initial standalone release of `casambi-classic-ble` fork, dedicated exclusively to Casambi Classic firmware networks.
+- Classic BLE GATT service definitions (`0xFE3D`, `0xFE4D`) and passive advertisement decoder (`0x03C3`).
+- Zero PII policy and TruffleHog secret scanning in CI and pre-commit hooks.
 
 ## [0.2.0] - 2026-10-31
 
@@ -47,9 +53,4 @@
 ## [0.1.0] - 2024-01-24
 
 ### Added
-- Initial release
-- Classic firmware support
-- Device scanning and connection
-- Basic lighting controls
-- RGB and color temperature control
-- Comprehensive test suite
+- Upstream baseline (`casambi-bt` legacy initial release).

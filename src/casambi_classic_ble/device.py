@@ -36,13 +36,32 @@ class CasambiDevice:
         self.client: Optional[BleakClient] = client
         self.is_connected = False
         self._notification_callback: Optional[Callable[[bytearray], None]] = None
+        self._disconnect_callback: Optional[Callable[[], None]] = None
+        self._write_lock: asyncio.Lock = asyncio.Lock()
         self.last_state: dict[str, Any] = {}
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
         self._session_key: Optional[bytes] = None
 
+    def set_disconnected_callback(self, *, callback: Callable[[], None]) -> None:
+        """Set callback invoked on unexpected disconnection"""
+        self._disconnect_callback = callback
+
+    def _on_bleak_disconnect(self, client: BleakClient) -> None:
+        """Internal callback invoked when Bleak drops connection"""
+        self.is_connected = False
+        logger.info(f"Device {self.name} disconnected from BLE stack")
+        if self._disconnect_callback:
+            try:
+                self._disconnect_callback()
+            except Exception as err:
+                logger.warning(f"Error in disconnect callback: {err}", exc_info=True)
+
     async def connect(self, *, timeout: float = 30.0) -> bool:
-        """Connect to the Casambi device"""
+        """Connect to the Casambi device (idempotent if already connected)"""
+        if self.is_connected and self.client and getattr(self.client, "is_connected", False):
+            logger.debug(f"Device {self.name} is already connected.")
+            return True
         try:
             # If no pre-injected client, find/connect the device
             if not self.client:
@@ -102,12 +121,17 @@ class CasambiDevice:
                         device=self._ble_device,
                         name=self.name,
                         timeout=timeout,
+                        disconnected_callback=self._on_bleak_disconnect,
                     )
                 except Exception as conn_err:
                     logger.warning(
                         f"establish_connection failed, falling back to direct BleakClient: {conn_err}"
                     )
-                    self.client = BleakClient(self._ble_device, timeout=timeout)
+                    self.client = BleakClient(
+                        self._ble_device,
+                        timeout=timeout,
+                        disconnected_callback=self._on_bleak_disconnect,
+                    )
                     await self.client.connect()
             elif not getattr(self.client, "is_connected", False):
                 await self.client.connect()
@@ -131,6 +155,9 @@ class CasambiDevice:
 
             return True
 
+        except asyncio.CancelledError:
+            self.is_connected = False
+            raise
         except Exception as e:
             logger.error(f"Failed to connect to {self.address}: {e}")
             self.is_connected = False
@@ -158,7 +185,10 @@ class CasambiDevice:
 
     async def disconnect(self) -> None:
         """Disconnect from the device"""
-        if self.client and self.is_connected:
+        if not self.is_connected:
+            return
+
+        if self.client:
             try:
                 # Only stop notify if we are connected
                 try:
@@ -168,8 +198,12 @@ class CasambiDevice:
                 await self.client.disconnect()
                 self.is_connected = False
                 logger.info(f"Disconnected from {self.name}")
+            except asyncio.CancelledError:
+                self.is_connected = False
+                raise
             except Exception as e:
                 logger.error(f"Error disconnecting: {e}")
+                self.is_connected = False
 
     async def read_status_char(self) -> Optional[bytes]:
         """Perform a direct GATT read on the status characteristic"""
@@ -273,31 +307,36 @@ class CasambiDevice:
         self._notification_callback = callback
 
     async def _send_command(self, *, command: int, payload: bytes = b"") -> bool:
-        """Send a command to the device"""
+        """Send a command to the device, serialized with write lock"""
         if not self.is_connected or not self.client:
             logger.error("Device not connected")
             return False
 
-        try:
-            # Opcode is the first byte, remains unencrypted
-            # Payload follows and must be XORed if we are in a Protected mesh
-            if self._session_key and command != CasambiCommands.AUTHENTICATE:
-                xor_payload = bytearray()
-                for i, byte in enumerate(payload):
-                    # Rotate through 4-byte session key
-                    xor_payload.append(byte ^ self._session_key[i % 4])
-                payload = bytes(xor_payload)
+        async with self._write_lock:
+            try:
+                # Opcode is the first byte, remains unencrypted
+                # Payload follows and must be XORed if we are in a Protected mesh
+                if self._session_key and command != CasambiCommands.AUTHENTICATE:
+                    xor_payload = bytearray()
+                    for i, byte in enumerate(payload):
+                        # Rotate through 4-byte session key
+                        xor_payload.append(byte ^ self._session_key[i % 4])
+                    payload = bytes(xor_payload)
 
-            packet = struct.pack("B", command) + payload
-            logger.debug(f"Sending command {command:#02x} to {self._control_uuid}: {packet.hex()}")
+                packet = struct.pack("B", command) + payload
+                logger.debug(
+                    f"Sending command {command:#02x} to {self._control_uuid}: {packet.hex()}"
+                )
 
-            await self.client.write_gatt_char(self._control_uuid, packet, response=True)
-            logger.debug(f"Successfully wrote {len(packet)} bytes")
-            return True
+                await self.client.write_gatt_char(self._control_uuid, packet, response=True)
+                logger.debug(f"Successfully wrote {len(packet)} bytes")
+                return True
 
-        except Exception as e:
-            logger.error(f"Failed to send command: {e}")
-            return False
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to send command: {e}")
+                return False
 
     async def turn_on(self, *, unit_id: int = 1) -> bool:
         """Turn on a light unit (using Set Level 100%)"""

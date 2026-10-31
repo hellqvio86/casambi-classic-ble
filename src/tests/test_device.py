@@ -1,6 +1,6 @@
 """Tests for CasambiDevice"""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -351,3 +351,82 @@ class TestCasambiDevice:
 
         with pytest.raises(CasambiDeviceError, match="RGB channel 'b'"):
             await device.set_rgb(unit_id=1, r=100, g=100, b=999)
+
+    @pytest.mark.asyncio
+    async def test_connect_idempotent(self, mock_bleak_client):
+        """Calling connect() when already connected returns True immediately without reconnecting."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.is_connected = True
+
+        result = await device.connect()
+        assert result is True
+        mock_bleak_client.connect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_safe_when_unconnected(self):
+        """Calling disconnect() when not connected is safe and does not raise."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.is_connected = False
+        device.client = None
+
+        await device.disconnect()
+        assert device.is_connected is False
+
+    def test_disconnect_callback_handling(self, mock_bleak_client):
+        """Triggering _on_bleak_disconnect invokes registered callback and isolates errors."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.is_connected = True
+
+        disconnections = []
+        device.set_disconnected_callback(callback=lambda: disconnections.append(True))
+        device._on_bleak_disconnect(mock_bleak_client)
+
+        assert len(disconnections) == 1
+        assert device.is_connected is False
+
+        # If subscriber callback raises an error, _on_bleak_disconnect does not crash
+        failing_device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        failing_device.set_disconnected_callback(
+            callback=MagicMock(side_effect=RuntimeError("Subscriber error"))
+        )
+        failing_device._on_bleak_disconnect(mock_bleak_client)
+        assert failing_device.is_connected is False
+
+    @pytest.mark.asyncio
+    async def test_gatt_writes_serialized_with_lock(self, mock_bleak_client):
+        """Simultaneous GATT write operations must acquire _write_lock sequentially."""
+        import asyncio
+
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+
+        execution_order = []
+
+        async def fake_write(*args, **kwargs):
+            execution_order.append("start")
+            await asyncio.sleep(0.01)
+            execution_order.append("end")
+
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=fake_write)
+
+        # Launch two commands concurrently
+        await asyncio.gather(
+            device.set_level(unit_id=1, level=0.5),
+            device.set_level(unit_id=2, level=0.8),
+        )
+
+        # Because writes are locked, execution must not interleave: start, end, start, end
+        assert execution_order == ["start", "end", "start", "end"]
+
+    @pytest.mark.asyncio
+    async def test_cancellation_propagates(self, mock_bleak_client):
+        """asyncio.CancelledError must propagate and not be swallowed by broad except."""
+        import asyncio
+
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await device.set_level(unit_id=1, level=0.5)

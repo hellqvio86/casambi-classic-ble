@@ -1,7 +1,7 @@
 """Casambi Cloud Client Implementation"""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiohttp
 
@@ -32,9 +32,9 @@ class CasambiCloud:
         self.network_password = network_password
         self.wire_id = wire_id
 
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._api: Optional[CasambiCloudAPI] = None
-        self._ws: Optional[CasambiCloudWebsocket] = None
+        self._session: aiohttp.ClientSession | None = None
+        self._api: CasambiCloudAPI | None = None
+        self._ws: CasambiCloudWebsocket | None = None
 
     async def __aenter__(self) -> "CasambiCloud":
         self._session = aiohttp.ClientSession()
@@ -55,7 +55,7 @@ class CasambiCloud:
         self._ws = None
 
     @property
-    def network_id(self) -> Optional[str]:
+    def network_id(self) -> str | None:
         return self._api.network_id if self._api else None
 
     @property
@@ -69,7 +69,7 @@ class CasambiCloud:
             self._api = CasambiCloudAPI(api_key=self.api_key, session=self._session)
         return await self._api.create_user_session(email=self.email, password=self.user_password)
 
-    async def create_network_session(self) -> List[str]:
+    async def create_network_session(self) -> list[str]:
         """Create network session."""
         if not self._api:
             self._session = aiohttp.ClientSession()
@@ -111,7 +111,7 @@ class CasambiCloud:
         )
         return await self._ws.open()
 
-    async def ws_receive_messages(self, *, timeout: float = 0.5) -> List[Dict[str, Any]]:
+    async def ws_receive_messages(self, *, timeout: float = 0.5) -> list[dict[str, Any]]:
         if not self._ws:
             return []
         return await self._ws.receive_messages(timeout=timeout)

@@ -4,7 +4,8 @@ import asyncio
 import hashlib
 import logging
 import struct
-from typing import Any, Callable, Dict, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
 from bleak import BleakClient, BleakScanner, BLEDevice
 
@@ -24,30 +25,30 @@ class CasambiDevice:
     def __init__(
         self,
         *,
-        address: Union[str, BLEDevice],
+        address: str | BLEDevice,
         name: str = "Unknown",
-        client: Optional[BleakClient] = None,
+        client: BleakClient | None = None,
     ):
         if isinstance(address, BLEDevice):
             self.address = address.address
             self.name = address.name or name
-            self._ble_device: Optional[BLEDevice] = address
+            self._ble_device: BLEDevice | None = address
         else:
             self.address = address
             self.name = name
             self._ble_device = None
 
-        self.client: Optional[BleakClient] = client
+        self.client: BleakClient | None = client
         self.is_connected = False
-        self._notification_callback: Optional[Callable[[bytearray], None]] = None
-        self._disconnect_callback: Optional[Callable[[], None]] = None
+        self._notification_callback: Callable[[bytearray], None] | None = None
+        self._disconnect_callback: Callable[[], None] | None = None
         self._write_lock: asyncio.Lock = asyncio.Lock()
         self.last_state: dict[str, Any] = {}
         self._state_callbacks: list[Callable[[dict[str, Any]], None]] = []
-        self._last_notified_state: Optional[tuple[bool, float]] = None
+        self._last_notified_state: tuple[bool, float] | None = None
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
-        self._session_key: Optional[bytes] = None
+        self._session_key: bytes | None = None
 
     def set_disconnected_callback(self, *, callback: Callable[[], None]) -> None:
         """Set callback invoked on unexpected disconnection"""
@@ -226,7 +227,7 @@ class CasambiDevice:
                 logger.error(f"Error disconnecting: {e}")
                 self.is_connected = False
 
-    async def read_status_char(self) -> Optional[bytes]:
+    async def read_status_char(self) -> bytes | None:
         """Perform a direct GATT read on the status characteristic"""
         if not self.is_connected or not self.client:
             return None
@@ -254,9 +255,7 @@ class CasambiDevice:
         if self._notification_callback:
             self._notification_callback(data)
 
-    def update_from_advertisement(
-        self, *, mfr_data: Union[bytes, bytearray]
-    ) -> Optional[Dict[str, Any]]:
+    def update_from_advertisement(self, *, mfr_data: bytes | bytearray) -> dict[str, Any] | None:
         """Update device state from passive advertisement data (ID 963)"""
         if not isinstance(mfr_data, (bytes, bytearray)) or len(mfr_data) < 8:
             return None
@@ -308,7 +307,7 @@ class CasambiDevice:
 
         return status
 
-    def parse_status(self, *, data: Union[bytearray, bytes]) -> Dict[str, Any]:
+    def parse_status(self, *, data: bytearray | bytes) -> dict[str, Any]:
         """
         Parse raw notification data into a dictionary.
         Enriched to match Casambi Cloud API structure.
@@ -318,7 +317,7 @@ class CasambiDevice:
 
         opcode = data[0]
         # Casambi standard status fields
-        status: Dict[str, Any] = {
+        status: dict[str, Any] = {
             "opcode": f"{opcode:#04x}",
             "id": data[1],  # unitId
             "on": data[2] > 0,
@@ -451,7 +450,7 @@ class CasambiDevice:
         """Set brightness level (0.0 - 1.0) for a unit or all units if unit_id is None."""
         if not (0.0 <= level <= 1.0):
             raise CasambiDeviceError(f"level must be between 0.0 and 1.0, got {level}")
-        level_byte = int(round(level * 255))
+        level_byte = round(level * 255)
         if unit_id is None:
             payload = struct.pack("<HB", 0xFFFF, level_byte)
         else:
@@ -484,7 +483,7 @@ class CasambiDevice:
         payload = struct.pack("BBBB", unit_id, r, g, b)
         await self._send_command(command=CasambiCommands.SET_RGB, payload=payload)
 
-    async def get_device_info(self) -> Dict[str, str]:
+    async def get_device_info(self) -> dict[str, str]:
         """Read device information"""
         info = {}
         try:

@@ -88,7 +88,7 @@ class CasambiCloudWebsocket:
                     _LOGGER.info(f"CLOUD CONTROL: Unit {data.get('id')} command ACK")
 
                 timeout = 0.05
-            except (asyncio.TimeoutError, websockets.ConnectionClosed):
+            except (TimeoutError, websockets.ConnectionClosed):
                 break
         return messages
 

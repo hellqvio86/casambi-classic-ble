@@ -307,10 +307,10 @@ class TestCasambiDevice:
     @pytest.mark.asyncio
     async def test_input_validation_set_level_rejects_out_of_bounds(self):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        with pytest.raises(CasambiDeviceError, match="level must be between 0.0 and 1.0"):
+        with pytest.raises(CasambiDeviceError, match=r"level must be between 0\.0 and 1\.0"):
             await device.set_level(unit_id=1, level=-0.1)
 
-        with pytest.raises(CasambiDeviceError, match="level must be between 0.0 and 1.0"):
+        with pytest.raises(CasambiDeviceError, match=r"level must be between 0\.0 and 1\.0"):
             await device.set_level(unit_id=1, level=1.01)
 
         with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):

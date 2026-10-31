@@ -62,8 +62,25 @@ target-version = "py312"
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "BLE", "RUF", "SIM"]
+ignore = [
+    "E501",
+    "RUF012",
+    "RUF022",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "B008",
+    "B905",
+    "B904",
+    "SIM105",
+    "SIM108",
+    "SIM113",
+    "SIM114",
+    "SIM102",
+    "ASYNC109",
+    "BLE001",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]

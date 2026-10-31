@@ -38,7 +38,7 @@ from ._network import Network
 from ._switch import SwitchEventDecoder
 
 # We need to move these imports here to prevent a cycle.
-from .errors import (  # noqa: E402
+from .errors import (
     BluetoothDeviceNotFoundError,
     BluetoothError,
     ConnectionStateError,

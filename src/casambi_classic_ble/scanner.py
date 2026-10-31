@@ -1,7 +1,6 @@
 """Casambi BLE device scanner"""
 
 import logging
-from typing import List
 
 from bleak import BleakScanner
 
@@ -15,7 +14,7 @@ class CasambiScanner:
     """Scanner for discovering Casambi devices"""
 
     @staticmethod
-    async def scan(*, duration: float = 5.0) -> List[CasambiDevice]:
+    async def scan(*, duration: float = 5.0) -> list[CasambiDevice]:
         """
         Scan for Casambi devices
 

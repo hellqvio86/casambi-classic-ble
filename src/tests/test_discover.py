@@ -60,16 +60,20 @@ async def test_discover_darwin_platform():
 
 @pytest.mark.asyncio
 async def test_discover_errors():
-    with patch(
-        "casambi_classic_ble._discover.BleakScanner.discover",
-        side_effect=BleakDBusError("org.bluez.Error.Failed", ["DBus error"]),
+    with (
+        patch(
+            "casambi_classic_ble._discover.BleakScanner.discover",
+            side_effect=BleakDBusError("org.bluez.Error.Failed", ["DBus error"]),
+        ),
+        pytest.raises(BluetoothError),
     ):
-        with pytest.raises(BluetoothError):
-            await discover()
+        await discover()
 
-    with patch(
-        "casambi_classic_ble._discover.BleakScanner.discover",
-        side_effect=BleakError("Generic bleak error"),
+    with (
+        patch(
+            "casambi_classic_ble._discover.BleakScanner.discover",
+            side_effect=BleakError("Generic bleak error"),
+        ),
+        pytest.raises(BluetoothError),
     ):
-        with pytest.raises(BluetoothError):
-            await discover()
+        await discover()

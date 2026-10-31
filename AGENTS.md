@@ -85,7 +85,7 @@ Write clean, idiomatic, and modern Python (Python `>= 3.12`). Code should look a
    - Protect state mutation and concurrent I/O with `asyncio.Lock` where appropriate.
 
 4. **Error Handling & Explicit Failures:**
-   - Raise explicit, domain-specific exceptions from [`casambi_classic_ble.exceptions`](file:///home/hellqvio/git/casambi-classic-ble/casambi_classic_ble/exceptions.py) (`CasambiException`, `CasambiConnectionError`, `CasambiDeviceError`) rather than returning ambiguous sentinel values (`None`, `False`, `-1`).
+   - Raise explicit, domain-specific exceptions from [`casambi_classic_ble.exceptions`](src/casambi_classic_ble/exceptions.py) (`CasambiException`, `CasambiConnectionError`, `CasambiDeviceError`) rather than returning ambiguous sentinel values (`None`, `False`, `-1`).
    - **Never use bare `except:` clauses.** Always catch explicit exception types (e.g., `except (BleakError, asyncio.TimeoutError) as err:`).
    - Preserve error chaining with `raise NewException(...) from err`.
 
@@ -105,7 +105,7 @@ Write clean, idiomatic, and modern Python (Python `>= 3.12`). Code should look a
 **All code must be covered with `pytest` unit tests.** Untested code, uncovered branches, or PRs lacking test assertions are not accepted.
 
 1. **Comprehensive Coverage Requirements:**
-   - Every public method, edge case, protocol opcode parser, and error branch must be accompanied by unit tests in [`src/tests/`](file:///home/hellqvio/git/casambi-classic-ble/src/tests/).
+   - Every public method, edge case, protocol opcode parser, and error branch must be accompanied by unit tests in [`src/tests/`](src/tests/).
    - Always run test suite coverage before committing:
      ```bash
      uv run pytest src/tests/ --cov=casambi_classic_ble --cov-report=term-missing

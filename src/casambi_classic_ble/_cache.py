@@ -10,7 +10,7 @@ from anyio import Path
 
 _LOGGER = logging.getLogger(__name__)
 
-CACHE_PATH_DEFAULT: Final = Path(os.getcwd()) / "casambi-bt-store"
+CACHE_PATH_DEFAULT: Final = Path(os.getcwd()) / "casambi-classic-ble-store"
 CACHE_VERSION: Final = 4
 
 # We need a global lock since there could be multiple Casambi instances

@@ -1,21 +1,26 @@
-"""Error types for CasambiBt."""
+"""Error types for Casambi Classic BLE."""
 
 from ._constants import ConnectionState
+from .exceptions import CasambiException
 
 
-class CasambiBtError(RuntimeError):
-    """Base class for all CasambiBt errors."""
+class CasambiClassicBleError(CasambiException):
+    """Base class for all Casambi Classic BLE errors."""
 
     pass
 
 
-class NetworkNotFoundError(CasambiBtError):
+# Backwards compatibility alias
+CasambiBtError = CasambiClassicBleError
+
+
+class NetworkNotFoundError(CasambiClassicBleError):
     """Exception that is raised when the network can't be found."""
 
     pass
 
 
-class NetworkUpdateError(CasambiBtError):
+class NetworkUpdateError(CasambiClassicBleError):
     """Exception that is raised when the network can't be updated."""
 
     pass
@@ -27,13 +32,13 @@ class NetworkOnlineUpdateNeededError(NetworkUpdateError):
     pass
 
 
-class AuthenticationError(CasambiBtError):
+class AuthenticationError(CasambiClassicBleError):
     """Excpetion that is raised when authentication to the network fails."""
 
     pass
 
 
-class ConnectionStateError(CasambiBtError):
+class ConnectionStateError(CasambiClassicBleError):
     """Exception that is raised when the connection isn't in the required state."""
 
     def __init__(
@@ -53,25 +58,25 @@ class ConnectionStateError(CasambiBtError):
         super().__init__(msg)
 
 
-class BluetoothError(CasambiBtError):
+class BluetoothError(CasambiClassicBleError):
     """Exception that is raised when a bluetooth-related error happens."""
 
     pass
 
 
-class BluetoothDeviceNotFoundError(CasambiBtError):
+class BluetoothDeviceNotFoundError(CasambiClassicBleError):
     """Exception that is raised when the bluetooth device used by the network can't be found."""
 
     pass
 
 
-class ProtocolError(CasambiBtError):
+class ProtocolError(CasambiClassicBleError):
     """Exception that is raised when communication with the device doesn't follow the expected protocol."""
 
     pass
 
 
-class UnsupportedProtocolVersion(CasambiBtError):
+class UnsupportedProtocolVersion(CasambiClassicBleError):
     """Exception that is raised when the network has an unsupported version."""
 
     pass

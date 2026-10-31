@@ -1,8 +1,9 @@
-.PHONY: help setup test lint format coverage clean all hooks build publish secrets trivy typecheck
+.PHONY: help setup venv test lint format coverage clean all hooks build publish secrets trivy typecheck
 
 help:
 	@echo "Available commands:"
 	@echo "  make setup     - Set up development environment using uv"
+	@echo "  make venv      - Create virtual environment using uv"
 	@echo "  make hooks     - Install git commit hook (runs secrets, lint, and test before commit)"
 	@echo "  make secrets   - Run TruffleHog secret scanning"
 	@echo "  make trivy     - Run Trivy vulnerability scanning"
@@ -12,7 +13,7 @@ help:
 	@echo "  make format    - Format code"
 	@echo "  make coverage  - Run coverage"
 	@echo "  make build     - Build distribution packages using uv"
-	@echo "  make publish   - Publish built packages to PyPI using uv"
+	@echo "  make publish   - Displays release & publish workflow instructions"
 	@echo "  make clean     - Clean temporary files"
 	@echo "  make all       - Run all checks"
 
@@ -68,9 +69,10 @@ build:
 	@echo "Building package distributions with uv..."
 	uv build
 
-publish: build
-	@echo "Publishing package to PyPI with uv..."
-	uv publish
+publish:
+	@echo "NOTE: Publishing to PyPI is automated via GitHub Actions with PyPI Trusted Publishing (OIDC)."
+	@echo "Trigger publish by bumping version and publishing the draft release on GitHub, or run:"
+	@echo "  gh workflow run ci.yml -f job=publish"
 
 clean:
 	@echo "Cleaning up..."

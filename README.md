@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/casambi-classic-ble.svg)](https://pypi.org/project/casambi-classic-ble/)
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Firmware](https://img.shields.io/badge/firmware-Classic%20Casambi-orange.svg)](https://casambi.com)
 [![Fork](https://img.shields.io/badge/fork-Casambi%20Classic%20BLE-orange.svg)](https://github.com/hellqvio86/casambi-classic-ble)
 
@@ -122,4 +122,4 @@ See [ATTRIBUTION.md](ATTRIBUTION.md) for detailed attribution and fork history.
 
 ## License
 
-This project is licensed under the MIT License and includes portions derived from `casambi-bt` (Apache-2.0 / MIT) — see [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md) for details.
+This project is licensed under the Apache License, Version 2.0 — see the [LICENSE](LICENSE) file for the full text.

@@ -18,11 +18,19 @@ from ._unit import (
 from .cloud import CasambiCloud
 from .constants import CasambiCommands, CasambiUUIDs
 from .device import CasambiDevice
-from .exceptions import CasambiConnectionError, CasambiError
+from .exceptions import (
+    CasambiCloudApiException,
+    CasambiCommandError,
+    CasambiConnectionError,
+    CasambiDeviceError,
+    CasambiDeviceNotFoundError,
+    CasambiError,
+    CasambiException,
+)
 from .scanner import CasambiScanner
 
 __version__ = "0.3.2"
-__author__ = "Olof Hellqvist"
+__author__ = "Lukas Kempf, Olof Hellqvist"
 
 __all__ = [
     "CasambiDevice",
@@ -31,7 +39,12 @@ __all__ = [
     "CasambiCommands",
     "CasambiUUIDs",
     "CasambiError",
+    "CasambiException",
+    "CasambiDeviceError",
     "CasambiConnectionError",
+    "CasambiCommandError",
+    "CasambiDeviceNotFoundError",
+    "CasambiCloudApiException",
     "Casambi",
     "Group",
     "Scene",

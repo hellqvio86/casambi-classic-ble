@@ -21,7 +21,7 @@ We are deeply grateful to Lukas Kempf and all contributors to upstream `casambi-
 
 Upstream `casambi-bt` is licensed under the Apache License, Version 2.0. Portions of this codebase derive from upstream `casambi-bt`:
 
-- Copyright (c) Lukas Kempf and contributors
-- Copyright (c) 2026 Olof Hellqvist (fork modifications and additions)
+- Copyright 2022 Lukas Kempf and contributors
+- Copyright 2026 Olof Hellqvist (fork modifications and additions)
 
-Licensed under the Apache License, Version 2.0 and/or MIT License. See [LICENSE](LICENSE) for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

@@ -288,7 +288,7 @@ class CasambiDevice:
         opcode = data[0]
         # Casambi standard status fields
         status: Dict[str, Any] = {
-            "opcode": f"{opcode:#02x}",
+            "opcode": f"{opcode:#04x}",
             "id": data[1],  # unitId
             "on": data[2] > 0,
             "dimLevel": round((data[2] / 255.0), 3),
@@ -431,7 +431,7 @@ class CasambiDevice:
             raise CasambiDeviceError(
                 f"temp_kelvin must be between 2000 and 6500K, got {temp_kelvin}"
             )
-        payload = struct.pack("BH", unit_id, temp_kelvin)
+        payload = struct.pack("<BH", unit_id, temp_kelvin)
         return await self._send_command(command=CasambiCommands.SET_COLOR_TEMP, payload=payload)
 
     async def set_rgb(self, *, unit_id: int, r: int, g: int, b: int) -> bool:

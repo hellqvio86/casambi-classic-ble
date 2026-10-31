@@ -1,0 +1,147 @@
+{
+  "advertisements": [
+    {
+      "description": "Standard Classic Casambi manufacturer beacon with reverse MAC address",
+      "company_id": 963,
+      "raw_hex": "11223344556601020304",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": true,
+        "dimLevel": 0.008,
+        "level_percent": 1,
+        "source": "passive_adv"
+      }
+    },
+    {
+      "description": "Classic Casambi beacon matching forward MAC order",
+      "company_id": 963,
+      "raw_hex": "66554433221100fe0708",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": false,
+        "dimLevel": 0.996,
+        "level_percent": 100,
+        "source": "passive_adv"
+      }
+    }
+  ],
+  "status_packets": [
+    {
+      "description": "Decoded unit status response for unit 1",
+      "raw_hex": "030180",
+      "expected_opcode": "0x03",
+      "expected_id": 1,
+      "expected_on": true,
+      "expected_dim_level": 0.502,
+      "expected_level_percent": 50
+    }
+  ],
+  "opcodes": {
+    "TURN_LIGHT_ON": {
+      "opcode": 1,
+      "opcode_name": "TURN_LIGHT_ON",
+      "unit_id": 1,
+      "payload_hex": "01",
+      "frame_hex": "0101"
+    },
+    "TURN_LIGHT_OFF": {
+      "opcode": 2,
+      "opcode_name": "TURN_LIGHT_OFF",
+      "unit_id": 1,
+      "payload_hex": "01",
+      "frame_hex": "0201"
+    },
+    "SET_LEVEL_DIM": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "unit_id": 1,
+      "level_float": 0.5,
+      "payload_hex": "0180",
+      "frame_hex": "030180"
+    },
+    "SET_LEVEL_2BYTE_ON": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "unit_id": 1,
+      "payload_hex": "0100ff",
+      "frame_hex": "030100ff"
+    },
+    "SET_LEVEL_2BYTE_OFF": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "unit_id": 1,
+      "payload_hex": "010000",
+      "frame_hex": "03010000"
+    },
+    "SET_LEVEL_BROADCAST_ON": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "payload_hex": "ffffff",
+      "frame_hex": "03ffffff"
+    },
+    "SET_LEVEL_BROADCAST_OFF": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "payload_hex": "ffff00",
+      "frame_hex": "03ffff00"
+    },
+    "SET_COLOR_TEMP": {
+      "opcode": 4,
+      "opcode_name": "SET_COLOR_TEMP",
+      "unit_id": 1,
+      "temp_kelvin": 2700,
+      "payload_hex": "018c0a",
+      "frame_hex": "04018c0a"
+    },
+    "SET_RGB": {
+      "opcode": 5,
+      "opcode_name": "SET_RGB",
+      "unit_id": 1,
+      "r": 255,
+      "g": 128,
+      "b": 0,
+      "payload_hex": "01ff8000",
+      "frame_hex": "0501ff8000"
+    },
+    "AUTHENTICATE": {
+      "opcode": 7,
+      "opcode_name": "AUTHENTICATE",
+      "password_hash_hex": "5f4dcc3b5aa765d61d8327deb882cf99",
+      "payload_hex": "5f4dcc3b5aa765d61d8327deb882cf99",
+      "frame_hex": "075f4dcc3b5aa765d61d8327deb882cf99"
+    },
+    "GET_UNIT_STATE": {
+      "opcode": 15,
+      "opcode_name": "GET_UNIT_STATE",
+      "unit_id": 1,
+      "payload_hex": "01",
+      "frame_hex": "0f01"
+    },
+    "GET_DEVICE_INFO": {
+      "opcode": 16,
+      "opcode_name": "GET_DEVICE_INFO",
+      "payload_hex": "",
+      "frame_hex": "10"
+    },
+    "GET_NETWORK_INFO": {
+      "opcode": 17,
+      "opcode_name": "GET_NETWORK_INFO",
+      "payload_hex": "",
+      "frame_hex": "11"
+    },
+    "GET_STATE": {
+      "opcode": 20,
+      "opcode_name": "GET_STATE",
+      "unit_id": 1,
+      "payload_hex": "01",
+      "frame_hex": "1401"
+    }
+  },
+  "protected_mesh_xor": {
+    "session_key_hex": "aabbccdd",
+    "plaintext_payload_hex": "0180",
+    "xor_payload_hex": "ab3b",
+    "opcode": 3,
+    "final_frame_hex": "03ab3b"
+  }
+}

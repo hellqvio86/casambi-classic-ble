@@ -259,8 +259,46 @@ async def test_connect_exception_hierarchy_and_logging(
 
         assert exc_info.value.__cause__ is exc
         assert any(r.levelno == expected_log_level for r in caplog.records)
+        assert mock_classic_client._callbackTask is None or mock_classic_client._callbackTask.done()
 
     await mock_classic_client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_does_not_leak_callback_task_on_get_device_miss(
+    mock_classic_client,
+) -> None:
+    """T-006: Verify get_device returning None raises BluetoothDeviceNotFoundError without task leak."""
+    with (
+        patch("casambi_classic_ble._client.get_device", new=AsyncMock(return_value=None)),
+        pytest.raises(BluetoothDeviceNotFoundError),
+    ):
+        await mock_classic_client.connect()
+
+    assert mock_classic_client._callbackTask is None
+    assert mock_classic_client._callbackQueue is None
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_does_not_leak_callback_task_on_establish_failure(
+    mock_classic_client,
+) -> None:
+    """T-006: Verify establish_connection failure cleans up callback task without leak."""
+    fake_ble_device = MagicMock()
+    with (
+        patch(
+            "casambi_classic_ble._client.get_device", new=AsyncMock(return_value=fake_ble_device)
+        ),
+        patch("casambi_classic_ble._client.close_stale_connections", new=AsyncMock()),
+        patch(
+            "casambi_classic_ble._client.establish_connection",
+            new=AsyncMock(side_effect=BleakError("Connection failed")),
+        ),
+        pytest.raises(BluetoothError),
+    ):
+        await mock_classic_client.connect()
+
+    assert mock_classic_client._callbackTask is None or mock_classic_client._callbackTask.done()
 
 
 @pytest.mark.asyncio

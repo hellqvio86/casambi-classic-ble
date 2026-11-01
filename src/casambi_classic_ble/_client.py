@@ -65,7 +65,7 @@ class CasambiClient(ABC):
         self._outPacketCount = 0
         self._inPacketCount = 0
 
-        self._callbackQueue: asyncio.Queue[tuple[BleakGATTCharacteristic, bytearray]]
+        self._callbackQueue: asyncio.Queue[tuple[BleakGATTCharacteristic, bytearray]] | None = None
         self._callbackTask: asyncio.Task[None] | None = None
 
         self._address_or_devive = address_or_device
@@ -95,6 +95,14 @@ class CasambiClient(ABC):
         if self._connectionState != desired:
             raise ConnectionStateError(desired, self._connectionState)
 
+    async def _cleanup_callback_task(self) -> None:
+        """Cancel and wait for callback worker task."""
+        if self._callbackTask is not None:
+            self._callbackTask.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._callbackTask
+            self._callbackTask = None
+
     async def connect(self) -> None:
         self._checkState(ConnectionState.NONE)
 
@@ -103,10 +111,6 @@ class CasambiClient(ABC):
         # Reset packet counters
         self._outPacketCount = 1
         self._inPacketCount = 1
-
-        # Reset callback queue
-        self._callbackQueue = asyncio.Queue()
-        self._callbackTask = asyncio.create_task(self._processCallbacks())
 
         # To use bleak_retry_connector we need to have a BLEDevice so get one if we only have the address.
         device = (
@@ -131,19 +135,28 @@ class CasambiClient(ABC):
                 self._on_disconnect,
                 use_services_cache=False,
             )
+            # Reset callback queue and spawn task only after connection succeeds
+            self._callbackQueue = asyncio.Queue()
+            self._callbackTask = asyncio.create_task(self._processCallbacks())
         except BleakNotFoundError as err:
+            await self._cleanup_callback_task()
             # Guess that this is the error reason since there are no better error types
             self._logger.error("Failed to find unit.", exc_info=True)
             raise BluetoothDeviceNotFoundError("Device not found") from err
         except (BleakOutOfConnectionSlotsError, BleakAbortedError) as err:
+            await self._cleanup_callback_task()
             self._logger.warning("Transient connection error", exc_info=True)
             raise BluetoothError(str(err) or "Transient connection error") from err
         except BleakError as err:
+            await self._cleanup_callback_task()
             self._logger.error("Failed to connect.", exc_info=True)
             raise BluetoothError(str(err) or "Failed to connect") from err
-        except Exception as err:
-            self._logger.error("Unkown connection failure.", exc_info=True)
-            raise BluetoothError(str(err) or "Unknown connection failure") from err
+        except BaseException as err:
+            await self._cleanup_callback_task()
+            if isinstance(err, Exception):
+                self._logger.error("Unknown connection failure.", exc_info=True)
+                raise BluetoothError(str(err) or "Unknown connection failure") from err
+            raise
 
         self._logger.info(f"Connected to {self.address}")
         self._connectionState = ConnectionState.CONNECTED
@@ -157,11 +170,14 @@ class CasambiClient(ABC):
         self._connectionState = ConnectionState.NONE
 
     def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
-        self._callbackQueue.put_nowait((handle, data))
+        if self._callbackQueue is not None:
+            self._callbackQueue.put_nowait((handle, data))
 
     async def _processCallbacks(self) -> None:
         try:
             while True:
+                if self._callbackQueue is None:
+                    break
                 handle, data = await self._callbackQueue.get()
 
                 # Try to loose any races here.
@@ -173,7 +189,8 @@ class CasambiClient(ABC):
                     except Exception:
                         self._logger.error("Failed to process callback.", exc_info=True)
                     finally:
-                        self._callbackQueue.task_done()
+                        if self._callbackQueue is not None:
+                            self._callbackQueue.task_done()
         except asyncio.CancelledError:
             self._logger.info("Callback processing task cancelled.")
             raise
@@ -244,11 +261,7 @@ class CasambiClient(ABC):
     async def disconnect(self) -> None:
         self._logger.info("Disconnecting...")
 
-        if self._callbackTask is not None:
-            if self._callbackTask.cancel():
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._callbackTask
-            self._callbackTask = None
+        await self._cleanup_callback_task()
 
         if self._gattClient is not None and self._gattClient.is_connected:
             try:

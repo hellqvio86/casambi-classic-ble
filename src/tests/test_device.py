@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from casambi_classic_ble import CasambiDevice
+from casambi_classic_ble.constants import CasambiUUIDs
 from casambi_classic_ble.exceptions import (
     CasambiCommandError,
     CasambiConnectionError,
     CasambiDeviceError,
+    CasambiDeviceNotFoundError,
 )
 
 
@@ -39,17 +41,39 @@ class TestCasambiDevice:
 
         with (
             patch(
-                "bleak_retry_connector.establish_connection",
+                "casambi_classic_ble.device.establish_connection",
                 new=AsyncMock(return_value=mock_bleak_client),
             ) as mock_establish,
             patch("casambi_classic_ble.device.BleakScanner.discover") as mock_discover,
         ):
-            success = await device.connect(timeout=10.0)
+            await device.connect(timeout=10.0)
 
-            assert success is True
             assert device.is_connected is True
             mock_establish.assert_called_once()
             # Ensure scanner was NOT called because BLEDevice was already supplied
+            mock_discover.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_connect_uses_get_device_fast_lookup_without_scanning(
+        self, mock_device, mock_bleak_client
+    ):
+        """T-012: connect() uses get_device(address) first, avoiding BleakScanner.discover when resolved."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+
+        with (
+            patch(
+                "casambi_classic_ble.device.get_device", new=AsyncMock(return_value=mock_device)
+            ) as mock_get_device,
+            patch(
+                "casambi_classic_ble.device.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ) as mock_establish,
+            patch("casambi_classic_ble.device.BleakScanner.discover") as mock_discover,
+        ):
+            await device.connect()
+            assert device.is_connected is True
+            mock_get_device.assert_called_once_with("AA:BB:CC:DD:EE:FF")
+            mock_establish.assert_called_once()
             mock_discover.assert_not_called()
 
     def test_named_arguments_enforced(self):
@@ -62,21 +86,21 @@ class TestCasambiDevice:
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
         with (
-            patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client),
+            patch("casambi_classic_ble.device.get_device", new=AsyncMock(return_value=None)),
+            patch(
+                "casambi_classic_ble.device.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ),
             patch(
                 "casambi_classic_ble.device.BleakScanner.discover",
                 new=AsyncMock(return_value={mock_device.address: (mock_device, mock_adv_data)}),
             ),
         ):
-            result = await device.connect()
-
-            assert result is True
+            await device.connect()
             assert device.is_connected is True
 
     @pytest.mark.asyncio
     async def test_connect_reversed_and_mfr_data(self, mock_bleak_client, mock_device):
-        from unittest.mock import MagicMock
-
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
         # 1. Match reversed address: FF:EE:DD:CC:BB:AA
@@ -86,13 +110,17 @@ class TestCasambiDevice:
         adv_rev.manufacturer_data = {}
 
         with (
-            patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client),
+            patch("casambi_classic_ble.device.get_device", new=AsyncMock(return_value=None)),
+            patch(
+                "casambi_classic_ble.device.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ),
             patch(
                 "casambi_classic_ble.device.BleakScanner.discover",
                 new=AsyncMock(return_value={dev_rev.address: (dev_rev, adv_rev)}),
             ),
         ):
-            assert await device.connect() is True
+            await device.connect()
             assert device.is_connected is True
 
         # 2. Match manufacturer data
@@ -103,20 +131,21 @@ class TestCasambiDevice:
         device._ble_device = None
 
         with (
-            patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client),
+            patch("casambi_classic_ble.device.get_device", new=AsyncMock(return_value=None)),
+            patch(
+                "casambi_classic_ble.device.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ),
             patch(
                 "casambi_classic_ble.device.BleakScanner.discover",
                 new=AsyncMock(return_value={dev_mfr.address: (dev_mfr, adv_mfr)}),
             ),
         ):
-            assert await device.connect() is True
+            await device.connect()
+            assert device.is_connected is True
 
     @pytest.mark.asyncio
     async def test_connect_v2_and_not_found(self, mock_bleak_client, mock_device):
-        from unittest.mock import MagicMock
-
-        from casambi_classic_ble.constants import CasambiUUIDs
-
         # V2 service
         srv_v2 = MagicMock()
         srv_v2.uuid = CasambiUUIDs.SERVICE_V2
@@ -126,29 +155,42 @@ class TestCasambiDevice:
         adv = MagicMock()
         adv.manufacturer_data = {}
         with (
-            patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client),
+            patch("casambi_classic_ble.device.get_device", new=AsyncMock(return_value=None)),
+            patch(
+                "casambi_classic_ble.device.establish_connection",
+                new=AsyncMock(return_value=mock_bleak_client),
+            ),
             patch(
                 "casambi_classic_ble.device.BleakScanner.discover",
                 new=AsyncMock(return_value={mock_device.address: (mock_device, adv)}),
             ),
         ):
-            assert await device.connect() is True
+            await device.connect()
             assert device._control_uuid == CasambiUUIDs.CONTROL_V2
 
-        # Device not found
+        # Device not found raises CasambiDeviceNotFoundError
         device_missing = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        with patch(
-            "casambi_classic_ble.device.BleakScanner.discover", new=AsyncMock(return_value={})
+        with (
+            patch("casambi_classic_ble.device.get_device", new=AsyncMock(return_value=None)),
+            patch(
+                "casambi_classic_ble.device.BleakScanner.discover", new=AsyncMock(return_value={})
+            ),
         ):
-            assert await device_missing.connect() is False
+            with pytest.raises(CasambiDeviceNotFoundError):
+                await device_missing.connect()
             assert device_missing.is_connected is False
 
-        # Exception during connect
+        # Exception during connect raises CasambiConnectionError
         device_err = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        mock_bleak_client.connect.side_effect = Exception("Connect error")
         device_err._ble_device = mock_device
-        with patch("casambi_classic_ble.device.BleakClient", return_value=mock_bleak_client):
-            assert await device_err.connect() is False
+        with patch(
+            "casambi_classic_ble.device.establish_connection",
+            new=AsyncMock(side_effect=Exception("Connect error")),
+        ):
+            with pytest.raises(CasambiConnectionError) as exc_info:
+                await device_err.connect()
+            assert "Connect error" in str(exc_info.value.__cause__)
+            assert device_err.is_connected is False
 
     @pytest.mark.asyncio
     async def test_turn_on(self, mock_bleak_client):
@@ -287,19 +329,28 @@ class TestCasambiDevice:
         assert mock_bleak_client.write_gatt_char.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_get_state(self, mock_bleak_client):
-        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        device.client = mock_bleak_client
+    async def test_request_state(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+
+        with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
+            await device.request_state(unit_id=2, settle=0.5)
+            assert mock_bleak_client.write_gatt_char.call_count == 2
+            mock_sleep.assert_called_once_with(0.5)
+
+    @pytest.mark.asyncio
+    async def test_get_state_deprecated_alias(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
         device.is_connected = True
 
         with patch("asyncio.sleep", new=AsyncMock()):
-            await device.get_state(unit_id=2)
+            with pytest.deprecated_call():
+                await device.get_state(unit_id=2)
             assert mock_bleak_client.write_gatt_char.call_count == 2
 
     @pytest.mark.asyncio
     async def test_disconnect_and_read_status_char(self, mock_bleak_client):
-        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        device.client = mock_bleak_client
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
         device.is_connected = True
 
         mock_bleak_client.read_gatt_char = AsyncMock(return_value=bytearray(b"\x01\x02\x03"))
@@ -308,18 +359,45 @@ class TestCasambiDevice:
 
         await device.disconnect()
         assert device.is_connected is False
-        assert await device.read_status_char() is None
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.read_status_char()
+
+    @pytest.mark.asyncio
+    async def test_read_status_char_error_raises_device_error(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.read_gatt_char = AsyncMock(side_effect=RuntimeError("Read failure"))
+
+        with pytest.raises(CasambiDeviceError, match="Failed to read status char"):
+            await device.read_status_char()
 
     @pytest.mark.asyncio
     async def test_get_device_info(self, mock_bleak_client):
-        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        device.client = mock_bleak_client
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
         mock_bleak_client.read_gatt_char = AsyncMock(side_effect=[b"Casambi", b"CBU-ASD", b"26.5"])
 
         info = await device.get_device_info()
         assert info["manufacturer"] == "Casambi"
         assert info["model"] == "CBU-ASD"
         assert info["firmware"] == "26.5"
+
+    @pytest.mark.asyncio
+    async def test_get_device_info_disconnected_raises_connection_error(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        assert device.is_connected is False
+
+        with pytest.raises(CasambiConnectionError, match="Device not connected"):
+            await device.get_device_info()
+
+    @pytest.mark.asyncio
+    async def test_get_device_info_read_failure_raises_device_error(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.read_gatt_char = AsyncMock(side_effect=RuntimeError("GATT read crash"))
+
+        with pytest.raises(CasambiDeviceError, match="Failed to read device info"):
+            await device.get_device_info()
 
     @pytest.mark.asyncio
     async def test_send_command(self, mock_bleak_client):
@@ -335,11 +413,23 @@ class TestCasambiDevice:
     def test_notification_callback(self):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
         received = []
-        device.set_notification_callback(callback=lambda d: received.append(d))
+        unsubscribe = device.register_notification_callback(callback=lambda d: received.append(d))
         # Status response opcode 0x03
         device._notification_handler("test-sender", bytearray([0x03, 0x05, 0xFF]))
         assert len(received) == 1
         assert device.last_state["id"] == 5
+
+        unsubscribe()
+        device._notification_handler("test-sender", bytearray([0x03, 0x05, 0x00]))
+        assert len(received) == 1
+
+    def test_notification_callback_deprecated_setter(self):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        received = []
+        with pytest.deprecated_call():
+            device.set_notification_callback(callback=lambda d: received.append(d))
+        device._notification_handler("test-sender", bytearray([0x03, 0x05, 0xFF]))
+        assert len(received) == 1
 
     @pytest.mark.asyncio
     async def test_input_validation_set_level_rejects_out_of_bounds(self):
@@ -366,7 +456,7 @@ class TestCasambiDevice:
             await device.turn_off(unit_id=300)
 
         with pytest.raises(CasambiDeviceError, match="unit_id must be between 0 and 255"):
-            await device.get_state(unit_id=-5)
+            await device.request_state(unit_id=-5)
 
     @pytest.mark.asyncio
     async def test_input_validation_color_temperature_rejects_out_of_bounds(self):
@@ -376,6 +466,16 @@ class TestCasambiDevice:
 
         with pytest.raises(CasambiDeviceError, match="temp_kelvin must be between 2000 and 6500K"):
             await device.set_color_temperature(unit_id=1, temp_kelvin=6501)
+
+    @pytest.mark.asyncio
+    async def test_color_temperature_and_rgb_require_unit_id(self):
+        """T-013: set_color_temperature and set_rgb require unit_id keyword argument."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        with pytest.raises(TypeError):
+            await device.set_color_temperature(temp_kelvin=3500)  # type: ignore[call-arg]
+
+        with pytest.raises(TypeError):
+            await device.set_rgb(r=255, g=128, b=0)  # type: ignore[call-arg]
 
     @pytest.mark.asyncio
     async def test_input_validation_rgb_rejects_out_of_bounds(self):
@@ -391,13 +491,12 @@ class TestCasambiDevice:
 
     @pytest.mark.asyncio
     async def test_connect_idempotent(self, mock_bleak_client):
-        """Calling connect() when already connected returns True immediately without reconnecting."""
+        """Calling connect() when already connected returns immediately without reconnecting."""
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
         device.is_connected = True
         mock_bleak_client.is_connected = True
 
-        result = await device.connect()
-        assert result is True
+        await device.connect()
         mock_bleak_client.connect.assert_not_called()
 
     @pytest.mark.asyncio
@@ -416,19 +515,34 @@ class TestCasambiDevice:
         device.is_connected = True
 
         disconnections = []
-        device.set_disconnected_callback(callback=lambda: disconnections.append(True))
+        unsubscribe = device.register_disconnect_callback(
+            callback=lambda: disconnections.append(True)
+        )
         device._on_bleak_disconnect(mock_bleak_client)
 
         assert len(disconnections) == 1
         assert device.is_connected is False
 
+        unsubscribe()
+        device._on_bleak_disconnect(mock_bleak_client)
+        assert len(disconnections) == 1
+
         # If subscriber callback raises an error, _on_bleak_disconnect does not crash
         failing_device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        failing_device.set_disconnected_callback(
+        failing_device.register_disconnect_callback(
             callback=MagicMock(side_effect=RuntimeError("Subscriber error"))
         )
         failing_device._on_bleak_disconnect(mock_bleak_client)
         assert failing_device.is_connected is False
+
+    def test_disconnect_callback_deprecated_setter(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.is_connected = True
+        disconnections = []
+        with pytest.deprecated_call():
+            device.set_disconnected_callback(callback=lambda: disconnections.append(True))
+        device._on_bleak_disconnect(mock_bleak_client)
+        assert len(disconnections) == 1
 
     @pytest.mark.asyncio
     async def test_gatt_writes_serialized_with_lock(self, mock_bleak_client):
@@ -597,7 +711,7 @@ class TestCasambiDevice:
         raw_notifications = []
 
         unsubscribe = device.register_state_callback(callback=lambda state: updates.append(state))
-        device.set_notification_callback(callback=lambda data: raw_notifications.append(data))
+        device.register_notification_callback(callback=lambda data: raw_notifications.append(data))
 
         # (a) Notification: opcode 0x03, unit 1, level 128 (0x80)
         # format: [opcode (0x03), unit_id (0x01), level (0x80)]
@@ -634,7 +748,7 @@ class TestCasambiDevice:
             raise ValueError("Boom")
 
         device.register_state_callback(callback=raising_subscriber)
-        device.set_notification_callback(callback=lambda data: None)
+        device.register_notification_callback(callback=lambda data: None)
         # Should not raise
         device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0xFF]))
         assert len(updates) == 4
@@ -644,7 +758,7 @@ class TestCasambiDevice:
         def raising_raw(data):
             raise RuntimeError("Raw boom")
 
-        device.set_notification_callback(callback=raising_raw)
+        device.register_notification_callback(callback=raising_raw)
         device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0x10]))
         assert len(updates) == 5
 
@@ -652,3 +766,67 @@ class TestCasambiDevice:
         unsubscribe()
         device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0x20]))
         assert len(updates) == 5  # No new updates recorded
+
+    def test_is_connected_reflects_injected_client_state(self, mock_bleak_client):
+        """T-011: is_connected property reflects injected client's connection drop immediately."""
+        device = CasambiDevice(
+            address="AA:BB:CC:DD:EE:FF",
+            client=mock_bleak_client,
+        )
+        device.is_connected = True
+        mock_bleak_client.is_connected = True
+        assert device.is_connected is True
+
+        # Injected client disconnects externally
+        mock_bleak_client.is_connected = False
+        assert device.is_connected is False
+
+    def test_handle_disconnect_clears_dedupe_and_resets_client(self, mock_bleak_client):
+        """T-011: handle_disconnect resets deduplication cache and clears non-injected client."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.client = mock_bleak_client
+        device.is_connected = True
+        device._last_notified_states[1] = (True, 1.0)
+
+        device.handle_disconnect()
+        assert device.is_connected is False
+        assert len(device._last_notified_states) == 0
+        assert device.client is None
+        assert device._ble_device is None
+
+    def test_handle_disconnect_retains_injected_client_reference(self, mock_bleak_client):
+        """T-011: handle_disconnect retains injected client object for caller lifecycle."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        device._last_notified_states[1] = (True, 1.0)
+
+        device.handle_disconnect()
+        assert device.is_connected is False
+        assert len(device._last_notified_states) == 0
+        assert device.client is mock_bleak_client
+
+    @pytest.mark.asyncio
+    async def test_reconnect_delivers_first_state_without_suppression(self, mock_bleak_client):
+        """T-011: Reconnecting resets deduplication state so first state packet is delivered."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.is_connected = True
+
+        updates = []
+        device.register_state_callback(callback=lambda state: updates.append(state))
+
+        # Send state notification
+        device._notification_handler("test", bytearray([0x03, 0x01, 0xFF]))
+        assert len(updates) == 1
+
+        # Disconnect and reconnect
+        await device.disconnect()
+        assert device.is_connected is False
+
+        mock_bleak_client.is_connected = True
+        await device.connect()
+        assert device.is_connected is True
+
+        # Send identical state after reconnect -> must NOT be suppressed
+        device._notification_handler("test", bytearray([0x03, 0x01, 0xFF]))
+        assert len(updates) == 2

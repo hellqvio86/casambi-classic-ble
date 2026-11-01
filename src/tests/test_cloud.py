@@ -203,10 +203,14 @@ async def test_api_rest_endpoints():
 
 @pytest.mark.asyncio
 async def test_websocket_operations():
+    import uuid
+
+    import websockets
+
     ws = CasambiCloudWebsocket(api_key="key", network_id="net", session_id="sess")
 
     # Not connected errors
-    with pytest.raises(RuntimeError):
+    with pytest.raises(CasambiCloudApiException, match="Websocket not connected"):
         await ws.send_command(unit_id=1, target_controls={})
 
     assert await ws.receive_messages() == []
@@ -218,9 +222,14 @@ async def test_websocket_operations():
         assert await ws.open() is True
         assert ws.connected is True
 
+        # Verify sent open message has valid UUID4 ref (not UUID1 with MAC)
+        sent_open = json.loads(mock_conn.send.call_args_list[0][0][0])
+        parsed_uuid = uuid.UUID(sent_open["ref"])
+        assert parsed_uuid.version == 4
+
         # send_command
         await ws.send_command(unit_id=2, target_controls={"Dimmer": {"value": 0.5}})
-        mock_conn.send.assert_called()
+        assert mock_conn.send.call_count == 2
 
         # receive_messages
         mock_conn.recv.side_effect = [
@@ -229,6 +238,11 @@ async def test_websocket_operations():
         ]
         msgs = await ws.receive_messages(timeout=0.1)
         assert len(msgs) == 1
+
+        # ConnectionClosed resets connected flag
+        mock_conn.recv.side_effect = websockets.ConnectionClosed(None, None)
+        assert await ws.receive_messages(timeout=0.1) == []
+        assert ws.connected is False
 
         # close
         await ws.close()
@@ -243,6 +257,16 @@ async def test_websocket_open_failure():
     mock_conn.send = AsyncMock()
     mock_conn.recv.side_effect = Exception("ws fail")
     mock_conn.close = AsyncMock()
-    with patch("websockets.connect", new=AsyncMock(return_value=mock_conn)):
-        assert await ws.open() is False
-        assert ws.connected is False
+    with (
+        patch("websockets.connect", new=AsyncMock(return_value=mock_conn)),
+        pytest.raises(CasambiCloudApiException, match="Failed to open websocket"),
+    ):
+        await ws.open()
+    assert ws.connected is False
+
+    # Timeout during open
+    with (
+        patch("websockets.connect", new=AsyncMock(side_effect=TimeoutError())),
+        pytest.raises(CasambiCloudApiException, match="timed out"),
+    ):
+        await ws.open(open_timeout=0.01)

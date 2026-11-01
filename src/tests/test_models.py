@@ -9,7 +9,7 @@ from casambi_classic_ble import (
     UnitControlType,
     UnitState,
 )
-from casambi_classic_ble.errors import (
+from casambi_classic_ble.exceptions import (
     AuthenticationError,
     BluetoothDeviceNotFoundError,
     BluetoothError,

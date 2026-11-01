@@ -1,6 +1,7 @@
 """Casambi Cloud Client Implementation"""
 
 import logging
+from types import TracebackType
 from typing import Any
 
 import aiohttp
@@ -42,7 +43,12 @@ class CasambiCloud:
         self._api = CasambiCloudAPI(api_key=self.api_key, session=self._session)
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     async def close(self) -> None:

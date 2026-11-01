@@ -322,11 +322,16 @@ def test_unit_get_state_as_bytes_and_set_state_from_bytes():
     st.presence = 1
     st.lux = 1500
 
-    raw = unit.getStateAsBytes(state=st)
+    raw = unit.get_state_as_bytes(state=st)
     assert len(raw) == 16
 
+    # Test deprecated alias
+    with pytest.deprecated_call():
+        raw_deprecated = unit.getStateAsBytes(state=st)
+    assert raw_deprecated == raw
+
     # Now parse it back
-    unit.setStateFromBytes(raw)
+    unit.set_state_from_bytes(value=raw)
     assert unit.state is not None
     assert unit.state.dimmer == 255
     assert unit.state.vertical == 128
@@ -339,12 +344,16 @@ def test_unit_get_state_as_bytes_and_set_state_from_bytes():
     assert abs(unit.state.lux - 1500) <= 2
     assert "CustomSensor" in unit.state.sensors
 
+    # Test deprecated setStateFromBytes
+    with pytest.deprecated_call():
+        unit.setStateFromBytes(raw)
+
     # Test EXT/Elements multiplexed sensor accumulation
     # Packet header: raw[1] bits[7:6] = packet_type, raw[2] = raw_value
     sensor_packet = bytearray(16)
     sensor_packet[1] = 0x80  # packet_type = 2
     sensor_packet[2] = 0x4B  # value = 75
-    unit.setStateFromBytes(bytes(sensor_packet))
+    unit.set_state_from_bytes(value=bytes(sensor_packet))
     assert unit.sensor_cache[2] == 75
 
 

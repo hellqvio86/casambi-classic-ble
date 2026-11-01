@@ -22,7 +22,7 @@ from ._constants import (
 )
 from ._keystore import KeyStore
 from ._unit import Group, Scene, Unit, UnitControl, UnitControlType, UnitType
-from .errors import (
+from .exceptions import (
     AuthenticationError,
     NetworkNotFoundError,
     NetworkOnlineUpdateNeededError,
@@ -145,12 +145,13 @@ class Network:
         await json_file.write_text(json.dumps(self._session.to_dict(), indent=2))
         set_secure_file_permissions(path=json_file)
 
-    async def _saveSesion(self) -> None:
+    async def _save_session(self) -> None:
         self._logger.debug("Saving session...")
         async with self._cache as cachePath:
             await self._save_session_to_cache(cachePath)
 
-    _saveSession = _saveSesion
+    _saveSession = _save_session
+    _saveSesion = _save_session
 
     async def _loadTypeCache(self) -> None:
         self._logger.debug("Loading unit type cache...")
@@ -284,7 +285,7 @@ class Network:
         async with self._cache as cachePath:
             await self._save_type_cache_to_cache(cachePath)
 
-    async def getNetworkId(self, forceOffline: bool = False) -> None:
+    async def get_network_id(self, *, force_offline: bool = False) -> None:
         self._logger.info("Getting network id...")
 
         async with self._cache as cachePath:
@@ -303,7 +304,7 @@ class Network:
                 except Exception as err:
                     self._logger.debug(f"Could not migrate legacy network ID cache: {err}")
 
-        if forceOffline:
+        if force_offline:
             if not self._id:
                 raise NetworkOnlineUpdateNeededError("Network isn't cached.")
             else:
@@ -341,6 +342,18 @@ class Network:
             self._id = new_id
         self._logger.info(f"Got network id {self._id}.")
 
+    async def getNetworkId(self, *args: Any, **kwargs: Any) -> None:
+        """Deprecated alias for get_network_id."""
+        warnings.warn(
+            "getNetworkId is deprecated; use get_network_id instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        force_offline = (
+            args[0] if args else kwargs.get("force_offline", kwargs.get("forceOffline", False))
+        )
+        return await self.get_network_id(force_offline=force_offline)
+
     def authenticated(self) -> bool:
         if not self._session:
             return False
@@ -354,11 +367,11 @@ class Network:
     def protocolVersion(self) -> int:
         return self._protocolVersion
 
-    async def logIn(self, password: str, forceOffline: bool = False) -> None:
-        await self.getNetworkId(forceOffline)
+    async def log_in(self, *, password: str, force_offline: bool = False) -> None:
+        await self.get_network_id(force_offline=force_offline)
 
         # No need to be authenticated if we try to be offline anyway.
-        if self.authenticated() or forceOffline:
+        if self.authenticated() or force_offline:
             return
 
         self._logger.info("Logging in to network...")
@@ -372,14 +385,28 @@ class Network:
             sessionJson = res.json()
             sessionJson["expires"] = datetime.fromtimestamp(sessionJson["expires"] / 1000, UTC)
             self._session = _NetworkSession(**sessionJson)
-            self._logger.info("Login sucessful.")
-            await self._saveSesion()
+            self._logger.info("Login successful.")
+            await self._save_session()
         else:
             raise AuthenticationError(f"Login failed: {res.status_code}\n{res.text}")
 
-    async def update(self, forceOffline: bool = False) -> None:
+    async def logIn(self, *args: Any, **kwargs: Any) -> None:
+        """Deprecated alias for log_in."""
+        warnings.warn("logIn is deprecated; use log_in instead.", DeprecationWarning, stacklevel=2)
+        password = args[0] if len(args) > 0 else kwargs.get("password", "")
+        force_offline = (
+            args[1]
+            if len(args) > 1
+            else kwargs.get("force_offline", kwargs.get("forceOffline", False))
+        )
+        return await self.log_in(password=password, force_offline=force_offline)
+
+    async def update(
+        self, *args: Any, force_offline: bool = False, forceOffline: bool = False
+    ) -> None:
+        target_offline = force_offline or forceOffline or (args[0] if args else False)
         self._logger.info("Updating network...")
-        if not self.authenticated() and not forceOffline:
+        if not self.authenticated() and not target_offline:
             raise AuthenticationError("Not authenticated!")
 
         if self._id is None:
@@ -394,11 +421,11 @@ class Network:
                 self._networkRevision = network["network"]["revision"]
                 self._logger.info(f"Loaded cached network. Revision: {self._networkRevision}")
             else:
-                if forceOffline:
+                if target_offline:
                     raise NetworkOnlineUpdateNeededError("Network isn't cached.")
                 self._networkRevision = 0
 
-        if not forceOffline:
+        if not target_offline:
             getNetworkUrl = f"https://api.casambi.com/network/{self._id}/"
 
             try:
@@ -420,7 +447,7 @@ class Network:
                     self._logger.error(
                         "API reports that network is gone. Deleting cache. Retry later."
                     )
-                    await self._cache.invalidateCache()
+                    await self._cache.invalidate_cache()
 
                 if res.status_code != httpx.codes.OK:
                     self._logger.error(f"Update failed: {res.status_code}\n{res.text}")
@@ -452,13 +479,17 @@ class Network:
         if "keyStore" in network["network"]:
             keys = network["network"]["keyStore"]["keys"]
             for k in keys:
-                await self._keystore.addKey(k)
+                await self._keystore.add_key(key_dict=k)
 
         # Parse legacy keys
         if "visitorKey" in network["network"]:
-            await self._keystore.setLegacyKey(network["network"]["visitorKey"], True)
+            await self._keystore.set_legacy_key(
+                key=network["network"]["visitorKey"], is_visitor=True
+            )
         if "managerKey" in network["network"]:
-            await self._keystore.setLegacyKey(network["network"]["managerKey"], False)
+            await self._keystore.set_legacy_key(
+                key=network["network"]["managerKey"], is_visitor=False
+            )
 
         # Parse units
         self.units = []

@@ -6,7 +6,7 @@ from bleak.backends.client import BLEDevice
 from bleak.exc import BleakDBusError, BleakError
 
 from ._constants import CASA_UUID
-from .errors import BluetoothError
+from .exceptions import BluetoothError
 
 _LOGGER = logging.getLogger(__name__)
 

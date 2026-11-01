@@ -3,7 +3,6 @@ import pytest
 from casambi_classic_ble._operation import (
     OpCode,
     OperationsContextClassic,
-    OperationsContextEvolution,
 )
 from casambi_classic_ble._unit import Group, Scene, Unit, UnitType
 
@@ -81,19 +80,7 @@ def test_classic_prepare_operation_origin_rollover():
     assert ctx._origin == 2  # Rolled over to 1 and incremented to 2
 
 
-def test_evolution_prepare_operation():
-    ctx = OperationsContextEvolution()
-    unit = create_mock_unit(unit_id=3)
-    pkt = ctx.prepareOperation(op=OpCode.SetLevel, target=unit, payload=b"\x12\x34")
-    assert isinstance(pkt, bytes)
-
-    # Test unknown target type
-    class UnknownTarget:
-        pass
-
-    with pytest.raises(TypeError, match="Unkown target type"):
-        ctx.prepareOperation(op=OpCode.SetLevel, target=UnknownTarget(), payload=b"\x00")
-
-    # Payload too long
-    with pytest.raises(ValueError, match="Payload too long"):
-        ctx.prepareOperation(op=OpCode.SetLevel, target=None, payload=b"0" * 64)
+def test_classic_prepare_operation_unsupported_opcode():
+    ctx = OperationsContextClassic()
+    with pytest.raises(ValueError, match="not supported on Classic networks"):
+        ctx.prepareOperation(op=OpCode.SetSlider, target=None, payload=b"\x01")

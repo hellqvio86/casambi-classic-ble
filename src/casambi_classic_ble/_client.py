@@ -4,7 +4,6 @@ import logging
 import struct
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from hashlib import sha256
 from typing import Any
 
 from bleak import BleakClient
@@ -19,26 +18,22 @@ from bleak_retry_connector import (
     establish_connection,
     get_device,
 )
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric import ec
 
 from ._constants import (
     CASA_AUTH_CHAR_UUID,
     CLASSIC_AUTH_LEVEL_MANAGER,
     CLASSIC_AUTH_LEVEL_VISITOR,
-    FIRST_EVO_VERSION,
-    MAX_EVO_VERSION,
-    MIN_EVO_VERSION,
+    FIRST_UNSUPPORTED_PROTOCOL_VERSION,
     MIN_SUPPORTED_CLASSIC_VERSION,
     ConnectionState,
     IncomingPacketType,
 )
-from ._encryption import ClassicEncryptor, Encryptor
+from ._encryption import ClassicEncryptor
 from ._network import Network
 from ._switch import SwitchEventDecoder
 
 # We need to move these imports here to prevent a cycle.
-from .errors import (
+from .exceptions import (
     BluetoothDeviceNotFoundError,
     BluetoothError,
     ConnectionStateError,
@@ -52,9 +47,19 @@ class CasambiClient(ABC):
         self,
         address_or_device: str | BLEDevice,
         dataCallback: Callable[[IncomingPacketType, Any], None],
-        disonnectedCallback: Callable[[], None],
-        network: Network,
+        disconnected_callback: Callable[[], None] | None = None,
+        network: Network | None = None,
+        *,
+        disonnectedCallback: Callable[[], None] | None = None,
     ) -> None:
+        disc_cb = (
+            disconnected_callback if disconnected_callback is not None else disonnectedCallback
+        )
+        if disc_cb is None:
+            raise ValueError("disconnected_callback is required")
+        if network is None:
+            raise ValueError("network is required")
+
         self._gattClient: BleakClient = None  # type: ignore[assignment]
         self._network = network
 
@@ -68,7 +73,8 @@ class CasambiClient(ABC):
         self._callbackQueue: asyncio.Queue[tuple[BleakGATTCharacteristic, bytearray]] | None = None
         self._callbackTask: asyncio.Task[None] | None = None
 
-        self._address_or_devive = address_or_device
+        self._address_or_device = address_or_device
+        self._address_or_devive = address_or_device  # Deprecated alias
         self.address = (
             address_or_device.address
             if isinstance(address_or_device, BLEDevice)
@@ -78,7 +84,7 @@ class CasambiClient(ABC):
         self._switch_decoder = SwitchEventDecoder()
         self._connectionState: ConnectionState = ConnectionState.NONE
         self._dataCallback = dataCallback
-        self._disconnectedCallback = disonnectedCallback
+        self._disconnectedCallback = disc_cb
         self._activityLock = asyncio.Lock()
 
         self._logger.info(
@@ -185,7 +191,7 @@ class CasambiClient(ABC):
                 await asyncio.sleep(0.001)
                 async with self._activityLock:
                     try:
-                        self._callbackMulitplexer(handle, data)
+                        self._callback_multiplexer(handle, data)
                     except Exception:
                         self._logger.error("Failed to process callback.", exc_info=True)
                     finally:
@@ -195,7 +201,7 @@ class CasambiClient(ABC):
             self._logger.info("Callback processing task cancelled.")
             raise
 
-    def _callbackMulitplexer(
+    def _callback_multiplexer(
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
     ) -> None:
         self._logger.debug(
@@ -213,6 +219,9 @@ class CasambiClient(ABC):
             self._logger.warning(
                 "Unhandled notify in state %s (%d bytes)", self._connectionState, len(data)
             )
+
+    # Backwards compatibility alias for typo
+    _callbackMulitplexer = _callback_multiplexer
 
     @abstractmethod
     async def exchangeKey(self, retries: int = 2) -> None:
@@ -274,351 +283,6 @@ class CasambiClient(ABC):
         self._logger.info("Disconnected.")
 
 
-class CasambiClientEvolution(CasambiClient):
-    def __init__(
-        self,
-        address_or_device: str | BLEDevice,
-        dataCallback: Callable[[IncomingPacketType, Any], None],
-        disonnectedCallback: Callable[[], None],
-        network: Network,
-    ) -> None:
-        self._nonce: bytes
-        self._encryptor: Encryptor
-        self._key: bytearray
-
-        self._notifySignal = asyncio.Event()
-
-        super().__init__(address_or_device, dataCallback, disonnectedCallback, network)
-
-    def _checkProtocolVersion(self, version: int) -> None:
-        if version < MIN_EVO_VERSION:
-            raise UnsupportedProtocolVersion(
-                f"Classic version aren't supported by this class. Your network version is {version}. Minimum version is {MIN_EVO_VERSION}."
-            )
-        if version > MAX_EVO_VERSION:
-            self._logger.warning(
-                "Version too new. Your network version is %i. Highest supported version is %i. This version is untested.",
-                version,
-                MAX_EVO_VERSION,
-            )
-
-    async def _wait_timeout(self, evt: asyncio.Event, timeout: int = 15) -> None:
-        try:
-            await asyncio.wait_for(evt.wait(), timeout)
-        except TimeoutError as err:
-            raise BluetoothError("Timed out while waiting for a response.") from err
-
-    async def exchangeKey(self, retries: int = 2) -> None:
-        self._checkState(ConnectionState.CONNECTED)
-
-        self._logger.info("Starting key exchange...")
-
-        async with self._activityLock:
-            # Initiate communication with device.  The initial GATT read can fail
-            # transiently (e.g. ATT error 0x0e) if the device is not yet ready for
-            # GATT operations immediately after connection.  Retry with the same
-            # policy used by send().
-            retry = 0
-            while True:
-                try:
-                    firstResp = await self._gattClient.read_gatt_char(CASA_AUTH_CHAR_UUID)
-                    break
-                except BleakError as err:
-                    retry += 1
-                    if retry > retries:
-                        raise BluetoothError("Failed to initiate GATT read.") from err
-                    self._logger.debug("Transient error reading auth characteristic, retrying...")
-                    await asyncio.sleep(0.5)
-            self._logger.debug(f"Got {firstResp.hex()}")
-
-            # Check type and protocol version
-            if not (firstResp[0] == 0x1 and firstResp[1] == self._network.protocolVersion):
-                if (
-                    firstResp[0] == 0x1
-                    and firstResp[1] == 0x2B
-                    and self._network.protocolVersion in [10, 11]
-                ):
-                    # This is what happens for protocol version 11 so skip the error.
-                    # TODO: Implement proper handling after understanding this behavior.
-                    pass
-                else:
-                    # Silently continuing here can lead to invalid operations in the state machine
-                    # See https://github.com/lkempf/casambi-bt-hass/issues/152
-                    raise ProtocolError(
-                        "Unexpected answer from device! Wrong device or protocol version?"
-                        "If this happens after an update please create an issue."
-                        "First response: %s",
-                        firstResp.hex(),
-                    )
-
-            # Parse device info
-            self._mtu, self._unit, self._flags, self._nonce = struct.unpack_from(
-                ">BHH16s", firstResp, 2
-            )
-            self._logger.debug(
-                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, nonce {self._nonce.hex()}"
-            )
-
-            # Device will initiate key exchange, so listen for that
-            self._logger.debug("Starting notify")
-            try:
-                await self._gattClient.start_notify(
-                    CASA_AUTH_CHAR_UUID,
-                    self._queueCallback,
-                    bluez={"use_start_notify": True},
-                )
-            except BleakError as err:
-                raise BluetoothError("Failed to initiate GATT notify.") from err
-
-        # Wait for key exchange, will get notified by _exchNotifyCallback
-        await self._wait_timeout(self._notifySignal)
-        async with self._activityLock:
-            try:
-                self._notifySignal.clear()
-                if self._connectionState == ConnectionState.ERROR:
-                    raise ProtocolError("Invalid key exchange initiation.")
-
-                # Respond to key exchange
-                pubNums = self._pubKey.public_numbers()
-                keyExchResponse = struct.pack(
-                    ">B32s32sB",
-                    0x2,
-                    pubNums.x.to_bytes(32, byteorder="little", signed=False),
-                    pubNums.y.to_bytes(32, byteorder="little", signed=False),
-                    0x1,
-                )
-                await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, keyExchResponse)
-            except BleakError as err:
-                raise BluetoothError("GATT write failed during key exchange.") from err
-
-        # Wait for success response from _exchNotifyCallback
-        await self._wait_timeout(self._notifySignal)
-        async with self._activityLock:
-            self._notifySignal.clear()
-            if self._connectionState == ConnectionState.ERROR:  # type: ignore[comparison-overlap]
-                raise ProtocolError("Failed to negotiate key!")
-            else:
-                self._logger.info("Key exchange sucessful")
-                self._encryptor = Encryptor(bytes(self._key))
-
-                # Skip auth if the network doesn't use a key.
-                if self._network.keyStore.getKey():
-                    self._connectionState = ConnectionState.KEY_EXCHANGED
-                else:
-                    self._connectionState = ConnectionState.AUTHENTICATED
-
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
-        if data[0] == 0x2:
-            # Parse device pubkey
-            x, y = struct.unpack_from("<32s32s", data, 1)
-            x = int.from_bytes(x, byteorder="little")
-            y = int.from_bytes(y, byteorder="little")
-            self._logger.debug(f"Got public key {x}, {y}")
-
-            self._devicePubKey = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key()
-
-            # Generate key pair for client
-            self._privKey = ec.generate_private_key(ec.SECP256R1())
-            self._pubKey = self._privKey.public_key()
-
-            # Generate shared secret
-            secret = bytearray(self._privKey.exchange(ec.ECDH(), self._devicePubKey))
-            secret.reverse()
-            hashAlgo = sha256()
-            hashAlgo.update(secret)
-            digestedSecret = hashAlgo.digest()
-
-            # Compute transport key
-            self._key = bytearray()
-            for i in range(16):
-                self._key.append(digestedSecret[i] ^ digestedSecret[16 + i])
-
-            # Inform exchangeKey that packet has been parsed
-            self._notifySignal.set()
-
-        elif data[0] == 0x3:
-            if len(data) == 1:
-                # Key exchange is acknowledged by device
-                self._notifySignal.set()
-            else:
-                self._logger.error(
-                    f"Unexpected package length for key exchange response: {data.hex()}"
-                )
-                self._connectionState = ConnectionState.ERROR
-                self._notifySignal.set()
-        else:
-            self._logger.error("Unexpected package type in packet of %d bytes", len(data))
-            self._connectionState = ConnectionState.ERROR
-            self._notifySignal.set()
-
-    async def authenticate(self) -> None:
-        self._checkState(ConnectionState.KEY_EXCHANGED)
-
-        self._logger.info("Authenticating channel...")
-        key = self._network.keyStore.getKey()  # Session key
-
-        if not key:
-            self._logger.info("No key in keystore. Skipping auth.")
-            # The channel already has to be set to authenticated by exchangeKey.
-            # This needs to be done there a non-handshake packet could be sent right after acking the key exch
-            # and we don't want that packet to end up in _authNofityCallback.
-            return
-
-        async with self._activityLock:
-            # Compute client auth digest
-            hashFcnt = sha256()
-            hashFcnt.update(key.key)
-            hashFcnt.update(self._nonce)
-            hashFcnt.update(self._key)
-            authDig = hashFcnt.digest()
-            self._logger.debug(f"Auth digest: {authDig.hex()}")
-
-            # Send auth packet
-            authPacket = int.to_bytes(1, 4, "little")
-            authPacket += b"\x04"
-            authPacket += key.id.to_bytes(1, "little")
-            authPacket += authDig
-            await self._writeEncPacket(authPacket, 1, CASA_AUTH_CHAR_UUID)
-            self._outPacketCount += 1
-
-        # Wait for auth response
-        await self._wait_timeout(self._notifySignal)
-
-        async with self._activityLock:
-            self._notifySignal.clear()
-            if self._connectionState == ConnectionState.ERROR:
-                raise ProtocolError("Failed to verify authentication response.")
-            else:
-                self._connectionState = ConnectionState.AUTHENTICATED
-                self._logger.info("Authentication successful")
-
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
-        self._logger.info("Processing authentication response...")
-
-        # TODO: Verify counter
-        self._inPacketCount += 1
-
-        try:
-            self._encryptor.decryptAndVerify(bytes(data), bytes(data[:4]) + self._nonce[4:])
-        except InvalidSignature:
-            self._logger.fatal("Invalid signature for auth response!")
-            self._connectionState = ConnectionState.ERROR
-            self._notifySignal.set()
-            return
-
-        # TODO: Verify Digest 2 (to compare with response from device); SHA256(key.key||self pubKey point||self._key)
-
-        self._notifySignal.set()
-
-    def _establishedNotifyCallback(
-        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
-    ) -> None:
-        # TODO: Check incoming counter and direction flag
-
-        try:
-            packetContents = self._encryptor.decryptAndVerify(
-                bytes(data), bytes(data[:4]) + self._nonce[4:]
-            )
-        except InvalidSignature:
-            # We only drop packets with invalid signature here instead of going into an error state
-            self._logger.error("Invalid signature for packet of %d bytes!", len(data))
-            return
-
-        packetType = packetContents[0]
-        self._logger.debug(f"Incoming data of type {packetType}: {packetContents.hex()}")
-
-        # Log decrypted packet with special marker
-        self._logger.debug(
-            f"[CASAMBI_DECRYPTED] Type={packetType} #{self._inPacketCount}: {packetContents.hex()}"
-        )
-
-        if packetType == IncomingPacketType.UnitState:
-            self._parseUnitStates(packetContents[1:])
-        elif packetType == IncomingPacketType.SwitchEvent:
-            for s in self._switch_decoder.decode(packetContents[1:], self._inPacketCount):
-                self._dataCallback(IncomingPacketType.SwitchEvent, s)
-        elif packetType == IncomingPacketType.NetworkConfig:
-            # We don't care about the config the network thinks it has.
-            # We assume that cloud config and local config match.
-            # If there is a mismatch the user can solve it using the app.
-            # In the future we might want to parse the revision and issue a warning if there is a mismatch.
-            pass
-        else:
-            self._logger.debug(f"Packet type {packetType} not implemented. Ignoring!")
-
-    def _parseUnitStates(self, data: bytes) -> None:
-        self._logger.debug("Parsing incoming unit states...")
-        self._logger.debug(f"Incoming unit state: {data.hex()}")
-
-        pos = 0
-        oldPos = 0
-        try:
-            while pos <= len(data) - 4:
-                id = data[pos]
-                flags = data[pos + 1]
-                stateLen = ((data[pos + 2] >> 4) & 15) + 1
-                prio = data[pos + 2] & 15
-                pos += 3
-
-                online = flags & 2 != 0
-                on = flags & 1 != 0
-
-                if flags & 4:
-                    pos += 1  # TODO: con?
-                if flags & 8:
-                    pos += 1  # TODO: sid?
-                if flags & 16:
-                    pos += 1  # Unkown value
-
-                state = data[pos : pos + stateLen]
-                pos += stateLen
-
-                pos += (flags >> 6) & 3  # Padding?
-
-                self._logger.debug(
-                    f"Parsed state: Id {id}, prio {prio}, online {online}, on {on}, state {state.hex()}1"
-                )
-
-                self._dataCallback(
-                    IncomingPacketType.UnitState,
-                    {"id": id, "online": online, "on": on, "state": state},
-                )
-
-                oldPos = pos
-        except IndexError:
-            self._logger.error(
-                f"Ran out of data while parsing unit state! Remaining data {data[oldPos:].hex()} in {data.hex()}."
-            )
-
-    async def _sendInternal(self, packet: bytes) -> None:
-        counter = int.to_bytes(self._outPacketCount, 4, "little")
-        headerPaket = counter + b"\x07" + packet
-
-        self._logger.debug(f"Packet with header: {headerPaket.hex()}")
-
-        await self._writeEncPacket(headerPaket, self._outPacketCount, CASA_AUTH_CHAR_UUID)
-
-    async def _writeEncPacket(
-        self, packet: bytes, id: int, char: str | BleakGATTCharacteristic
-    ) -> None:
-        encPacket = self._encryptor.encryptThenMac(packet, self._getNonce(id))
-        try:
-            await self._gattClient.write_gatt_char(char, encPacket)
-        except BleakError as err:
-            if err.args and err.args[0] == "Not connected":
-                self._logger.debug("Unexpected write while disconnected.", exc_info=True)
-                self._connectionState = ConnectionState.NONE
-                raise ConnectionStateError(
-                    ConnectionState.AUTHENTICATED, ConnectionState.NONE
-                ) from err
-            raise BluetoothError from err
-
-    def _getNonce(self, id: int | bytes) -> bytes:
-        if isinstance(id, int):
-            id = id.to_bytes(4, "little")
-        return self._nonce[:4] + id + self._nonce[8:]
-
-
 class CasambiClientClassic(CasambiClient):
     """This is a client implementation for conformant classic networks."""
 
@@ -626,10 +290,24 @@ class CasambiClientClassic(CasambiClient):
         self,
         address_or_device: str | BLEDevice,
         dataCallback: Callable[[IncomingPacketType, Any], None],
-        disonnectedCallback: Callable[[], None],
-        network: Network,
+        disconnected_callback: Callable[[], None] | None = None,
+        network: Network | None = None,
+        *,
+        disonnectedCallback: Callable[[], None] | None = None,
     ) -> None:
-        super().__init__(address_or_device, dataCallback, disonnectedCallback, network)
+        disc_cb = (
+            disconnected_callback if disconnected_callback is not None else disonnectedCallback
+        )
+        if disc_cb is None:
+            raise ValueError("disconnected_callback is required")
+        if network is None:
+            raise ValueError("network is required")
+        super().__init__(
+            address_or_device,
+            dataCallback,
+            disconnected_callback=disc_cb,
+            network=network,
+        )
         self._connhash: bytes
 
         visitorKey = network.keyStore.getLegacyKey(CLASSIC_AUTH_LEVEL_VISITOR)
@@ -648,8 +326,12 @@ class CasambiClientClassic(CasambiClient):
             )
 
     def _checkProtocolVersion(self, version: int) -> None:
-        if version >= FIRST_EVO_VERSION:
-            raise UnsupportedProtocolVersion("Evolution networks aren't supported by this class.")
+        if version >= FIRST_UNSUPPORTED_PROTOCOL_VERSION:
+            raise UnsupportedProtocolVersion(
+                f"Protocol version {version} is not supported. This library is strictly for "
+                f"Classic firmware (versions < {FIRST_UNSUPPORTED_PROTOCOL_VERSION}). "
+                f"Use upstream casambi-bt for newer firmware."
+            )
 
         if version < MIN_SUPPORTED_CLASSIC_VERSION:
             raise UnsupportedProtocolVersion(

@@ -1,5 +1,4 @@
 import logging
-import struct
 from abc import ABC, abstractmethod
 from enum import IntEnum, unique
 from typing import Final
@@ -42,44 +41,6 @@ class OperationsContext(ABC):
         pass
 
 
-class OperationsContextEvolution(OperationsContext):
-    def prepareOperation(
-        self, op: OpCode, target: Unit | Group | Scene | None, payload: bytes
-    ) -> bytes:
-        if len(payload) > 63:
-            raise ValueError("Payload too long")
-
-        flags = (self.lifetime & 15) << 11 | len(payload)
-
-        # Ensure that origin can't overflow.
-        # TODO: Check that unsigned is actually correct here.
-        packet = struct.pack(
-            ">HBHHH", flags, op, self._origin & (2**16 - 1), self._getTarget(target), 0
-        )
-        self._origin += 1
-
-        return packet + payload
-
-    def _getTarget(self, target: Unit | Group | Scene | None) -> int:
-        targetCode = 0
-        if isinstance(target, Unit):
-            if target.deviceId > 0xFF:
-                raise ValueError(f"Unit deviceId {target.deviceId} exceeds 0xFF.")
-            targetCode = (target.deviceId << 8) | 0x01
-        elif isinstance(target, Group):
-            if target.groudId > 0xFF:
-                raise ValueError(f"Group groudId {target.groudId} exceeds 0xFF.")
-            targetCode = (target.groudId << 8) | 0x02
-        elif isinstance(target, Scene):
-            if target.sceneId > 0xFF:
-                raise ValueError(f"Scene sceneId {target.sceneId} exceeds 0xFF.")
-            targetCode = (target.sceneId << 8) | 0x04
-        elif target is not None:
-            raise TypeError(f"Unkown target type {type(target)}")
-
-        return targetCode
-
-
 class OperationsContextClassic(OperationsContext):
     def __init__(self) -> None:
         super().__init__()
@@ -90,6 +51,9 @@ class OperationsContextClassic(OperationsContext):
     ) -> bytes:
         if len(payload) > 16:
             raise ValueError("Payload too long")
+
+        if op not in _classicOpcodeMap:
+            raise ValueError(f"OpCode {op} is not supported on Classic networks.")
 
         if self._origin > 255:
             self._origin = 1

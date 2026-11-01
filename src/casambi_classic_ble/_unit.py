@@ -3,7 +3,7 @@ import warnings
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from dataclasses import dataclass, field
 from enum import Enum, EnumMeta, IntEnum, unique
-from typing import Final
+from typing import Any, Final
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,16 +112,24 @@ class UnitType:
     stateLength: int
     controls: list[UnitControl]
 
-    def get_control(self, controlType: UnitControlType) -> UnitControl | None:
+    def get_control(
+        self,
+        control_type: UnitControlType | None = None,
+        *,
+        controlType: UnitControlType | None = None,
+    ) -> UnitControl | None:
         """Return the control description if the unit type supports the given type of control.
 
-        :param controlType: The desired control type.
-        :return: A control description for the given control type if available, otherwise `None`
+        :param control_type: The desired control type.
+        :return: A control description for the given control type if available, otherwise `None`.
         """
-        target_val = controlType.value if hasattr(controlType, "value") else controlType
+        target = control_type if control_type is not None else controlType
+        if target is None:
+            raise ValueError("control_type is required")
+        target_val = target.value if hasattr(target, "value") else target
         for c in self.controls:
             c_val = c.type.value if hasattr(c.type, "value") else c.type
-            if c.type == controlType or c_val == target_val:
+            if c.type == target or c_val == target_val:
                 return c
 
         return None
@@ -575,8 +583,7 @@ class Unit:
         """
         return dict(self._sensor_cache)
 
-    # TODO: Add tests for this method
-    def getStateAsBytes(self, state: UnitState) -> bytes:
+    def get_state_as_bytes(self, *, state: UnitState) -> bytes:
         """Given a generic UnitState convert it into the internal state representation.
 
         Unsupported state information will be ignored.
@@ -663,8 +670,19 @@ class Unit:
         _LOGGER.debug(f"Packing {values.__repr__()} as {res}")
         return bytes(res)
 
-    # TODO: Add tests for this method
-    def setStateFromBytes(self, value: bytes) -> None:
+    def getStateAsBytes(self, *args: Any, **kwargs: Any) -> bytes:
+        """Deprecated alias for get_state_as_bytes."""
+        warnings.warn(
+            "getStateAsBytes is deprecated; use get_state_as_bytes instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        state = args[0] if args else kwargs.get("state")
+        if state is None:
+            raise ValueError("state is required")
+        return self.get_state_as_bytes(state=state)
+
+    def set_state_from_bytes(self, *, value: bytes) -> None:
         """Parse state bytes into a `UnitState` and set it for the current unit.
 
         :param value: State bytes for the unit.
@@ -754,29 +772,94 @@ class Unit:
 
         _LOGGER.debug(f"Parsed {value.hex()} to {self.state!r}")
 
+    def setStateFromBytes(self, *args: Any, **kwargs: Any) -> None:
+        """Deprecated alias for set_state_from_bytes."""
+        warnings.warn(
+            "setStateFromBytes is deprecated; use set_state_from_bytes instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        value = args[0] if args else kwargs.get("value")
+        if value is None:
+            raise ValueError("value is required")
+        self.set_state_from_bytes(value=value)
 
-@dataclass
+
 class Scene:
     """A scene in a network.
 
-    :ivar sceneId: The id of the scene in the network.
+    :ivar scene_id: The id of the scene in the network.
     :ivar name: The name of the scene.
     """
 
-    sceneId: int
-    name: str
+    def __init__(
+        self,
+        *args: Any,
+        scene_id: int | None = None,
+        sceneId: int | None = None,
+        s_id: int | None = None,
+        name: str = "",
+        units: dict[int, int] | None = None,
+    ) -> None:
+        sid = (
+            scene_id
+            if scene_id is not None
+            else (
+                sceneId
+                if sceneId is not None
+                else (s_id if s_id is not None else (args[0] if len(args) > 0 else 0))
+            )
+        )
+        self.sceneId: int = sid
+        self.name: str = name if name else (args[1] if len(args) > 1 else "")
+        self.units: dict[int, int] = (
+            units if units is not None else (args[2] if len(args) > 2 else {})
+        )
+
+    @property
+    def scene_id(self) -> int:
+        return self.sceneId
 
 
-@dataclass
 class Group:
     """A group (collection of units) in a network.
 
-    :ivar groupId: The id of the group in the network.
+    :ivar group_id: The id of the group in the network.
     :ivar name: The name of the group.
     :ivar units: A list of units in this group.
     """
 
-    groudId: int
-    name: str
+    def __init__(
+        self,
+        *args: Any,
+        group_id: int | None = None,
+        groupId: int | None = None,
+        groudId: int | None = None,
+        g_id: int | None = None,
+        name: str = "",
+        units: list[Any] | None = None,
+    ) -> None:
+        gid = (
+            group_id
+            if group_id is not None
+            else (
+                groupId
+                if groupId is not None
+                else (
+                    groudId
+                    if groudId is not None
+                    else (g_id if g_id is not None else (args[0] if len(args) > 0 else 0))
+                )
+            )
+        )
+        self.groudId: int = gid
+        self.name: str = name if name else (args[1] if len(args) > 1 else "")
+        self.units: list[Any] = units if units is not None else (args[2] if len(args) > 2 else [])
 
-    units: list[Unit]
+    @property
+    def group_id(self) -> int:
+        return self.groudId
+
+    @property
+    def groupId(self) -> int:
+        return self.groudId

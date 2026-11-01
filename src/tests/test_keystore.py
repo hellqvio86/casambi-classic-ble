@@ -12,22 +12,28 @@ from casambi_classic_ble._keystore import KeyStore
 
 @pytest.fixture
 def test_cache(tmp_path: pathlib.Path) -> Cache:
-    c = Cache(cachePath=tmp_path)
+    c = Cache(cache_path=tmp_path)
     return c
 
 
 @pytest.mark.asyncio
 async def test_keystore_load_empty(test_cache: Cache):
-    await test_cache.setUuid(uuid="test-net")
+    await test_cache.set_uuid(uuid="test-net")
     ks = KeyStore(cache=test_cache)
     await ks.load()
-    assert ks.getKey() is None
-    assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
+    assert ks.get_key() is None
+    assert ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
+
+    # Verify deprecated aliases emit warnings
+    with pytest.deprecated_call():
+        assert ks.getKey() is None
+    with pytest.deprecated_call():
+        assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
 
 
 @pytest.mark.asyncio
 async def test_keystore_add_and_save_load(test_cache: Cache):
-    await test_cache.setUuid(uuid="test-net")
+    await test_cache.set_uuid(uuid="test-net")
     ks = KeyStore(cache=test_cache)
 
     key_dict = {
@@ -37,12 +43,12 @@ async def test_keystore_add_and_save_load(test_cache: Cache):
         "name": "AdminKey",
         "key": "aabbccddeeff00112233445566778899",
     }
-    await ks.addKey(dict=key_dict)
+    await ks.add_key(key_dict=key_dict)
 
     # Duplicate should be ignored
-    await ks.addKey(dict=key_dict)
+    await ks.add_key(key_dict=key_dict)
 
-    retrieved = ks.getKey()
+    retrieved = ks.get_key()
     assert retrieved is not None
     assert retrieved.name == "AdminKey"
     assert retrieved.role == 2
@@ -51,77 +57,85 @@ async def test_keystore_add_and_save_load(test_cache: Cache):
     # Load in a new keystore instance
     ks2 = KeyStore(cache=test_cache)
     await ks2.load()
-    k = ks2.getKey()
+    k = ks2.get_key()
     assert k is not None
     assert k.name == "AdminKey"
+
+    # Verify deprecated alias emits warning
+    with pytest.deprecated_call():
+        await ks.addKey(dict=key_dict)
 
 
 @pytest.mark.asyncio
 async def test_keystore_add_key_validations(test_cache: Cache):
-    await test_cache.setUuid(uuid="test-net")
+    await test_cache.set_uuid(uuid="test-net")
     ks = KeyStore(cache=test_cache)
 
     with pytest.raises(KeyError, match="id"):
-        await ks.addKey(dict={})
+        await ks.add_key(key_dict={})
 
     with pytest.raises(ValueError, match="id"):
-        await ks.addKey(dict={"id": -1})
+        await ks.add_key(key_dict={"id": -1})
 
     with pytest.raises(KeyError, match="type"):
-        await ks.addKey(dict={"id": 1})
+        await ks.add_key(key_dict={"id": 1})
 
     with pytest.raises(ValueError, match="type"):
-        await ks.addKey(dict={"id": 1, "type": -1})
+        await ks.add_key(key_dict={"id": 1, "type": -1})
 
     with pytest.raises(KeyError, match="role"):
-        await ks.addKey(dict={"id": 1, "type": 0})
+        await ks.add_key(key_dict={"id": 1, "type": 0})
 
     with pytest.raises(ValueError, match="role"):
-        await ks.addKey(dict={"id": 1, "type": 0, "role": 10})
+        await ks.add_key(key_dict={"id": 1, "type": 0, "role": 10})
 
     with pytest.raises(KeyError, match="name"):
-        await ks.addKey(dict={"id": 1, "type": 0, "role": 1})
+        await ks.add_key(key_dict={"id": 1, "type": 0, "role": 1})
 
     with pytest.raises(KeyError, match="key"):
-        await ks.addKey(dict={"id": 1, "type": 0, "role": 1, "name": "k"})
+        await ks.add_key(key_dict={"id": 1, "type": 0, "role": 1, "name": "k"})
 
     with pytest.raises(ValueError, match="key"):
-        await ks.addKey(dict={"id": 1, "type": 0, "role": 1, "name": "k", "key": "not-hex"})
+        await ks.add_key(key_dict={"id": 1, "type": 0, "role": 1, "name": "k", "key": "not-hex"})
 
 
 @pytest.mark.asyncio
 async def test_keystore_legacy_key(test_cache: Cache):
-    await test_cache.setUuid(uuid="test-net")
+    await test_cache.set_uuid(uuid="test-net")
     ks = KeyStore(cache=test_cache)
 
     hex_key = "112233445566778899aabbccddeeff00"
-    await ks.setLegacyKey(key=hex_key, isVisitor=True)
-    assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is not None
+    await ks.set_legacy_key(key=hex_key, is_visitor=True)
+    assert ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR) is not None
 
     # Setting identical legacy key returns early
-    await ks.setLegacyKey(key=hex_key, isVisitor=True)
+    await ks.set_legacy_key(key=hex_key, is_visitor=True)
 
     # Update legacy key
     new_hex_key = "ffffffffffffffffffffffffffffffff"
-    await ks.setLegacyKey(key=new_hex_key, isVisitor=True)
-    vis_k = ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR)
+    await ks.set_legacy_key(key=new_hex_key, is_visitor=True)
+    vis_k = ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR)
     assert vis_k is not None
     assert vis_k.key == bytes.fromhex(new_hex_key)
 
     # Manager key
-    await ks.setLegacyKey(key=hex_key, isVisitor=False)
-    assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_MANAGER) is not None
+    await ks.set_legacy_key(key=hex_key, is_visitor=False)
+    assert ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_MANAGER) is not None
+
+    # Verify deprecated alias emits warning
+    with pytest.deprecated_call():
+        await ks.setLegacyKey(key=hex_key, isVisitor=True)
 
 
 @pytest.mark.asyncio
 async def test_keystore_clear(test_cache: Cache):
-    await test_cache.setUuid(uuid="test-net")
+    await test_cache.set_uuid(uuid="test-net")
     ks = KeyStore(cache=test_cache)
-    await ks.setLegacyKey(key="112233445566778899aabbccddeeff00", isVisitor=True)
-    assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is not None
+    await ks.set_legacy_key(key="112233445566778899aabbccddeeff00", is_visitor=True)
+    assert ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR) is not None
 
     await ks.clear(save=True)
-    assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
+    assert ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
 
 
 @pytest.mark.asyncio
@@ -132,7 +146,7 @@ async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_ca
     from casambi_classic_ble._constants import KEY_CACHE_FILE, LEGACY_KEY_CACHE_FILE
     from casambi_classic_ble._keystore import Key
 
-    await test_cache.setUuid(uuid="test-legacy-net")
+    await test_cache.set_uuid(uuid="test-legacy-net")
     async with test_cache as cachePath:
         legacy_file = cachePath / LEGACY_KEY_CACHE_FILE
         json_file = cachePath / KEY_CACHE_FILE
@@ -155,7 +169,7 @@ async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_ca
     with pytest.deprecated_call(match="Legacy pickle key cache 'keys.pck' is deprecated"):
         await ks.load()
 
-    retrieved = ks.getKey()
+    retrieved = ks.get_key()
     assert retrieved is not None
     assert retrieved.name == "LegacyAdmin"
     assert retrieved.key == bytes.fromhex("11223344556677889900112233445566")

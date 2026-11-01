@@ -12,18 +12,16 @@ from bleak_retry_connector import (
 
 from casambi_classic_ble._client import (
     CasambiClientClassic,
-    CasambiClientEvolution,
     ConnectionState,
 )
 from casambi_classic_ble._constants import (
-    FIRST_EVO_VERSION,
-    MIN_EVO_VERSION,
+    FIRST_UNSUPPORTED_PROTOCOL_VERSION,
     MIN_SUPPORTED_CLASSIC_VERSION,
     IncomingPacketType,
 )
 from casambi_classic_ble._encryption import ClassicEncryptor
 from casambi_classic_ble._network import Network
-from casambi_classic_ble.errors import (
+from casambi_classic_ble.exceptions import (
     BluetoothDeviceNotFoundError,
     BluetoothError,
     ConnectionStateError,
@@ -72,20 +70,10 @@ def test_protocol_version_checks(mock_network):
             network=mock_network,
         )
 
-    # Classic version is evolution version
-    mock_network.protocolVersion = FIRST_EVO_VERSION
+    # Unsupported version (>= 10)
+    mock_network.protocolVersion = FIRST_UNSUPPORTED_PROTOCOL_VERSION
     with pytest.raises(UnsupportedProtocolVersion):
         CasambiClientClassic(
-            address_or_device="AA:BB:CC:DD:EE:FF",
-            dataCallback=data_cb,
-            disonnectedCallback=disconnect_cb,
-            network=mock_network,
-        )
-
-    # Evolution version too low
-    mock_network.protocolVersion = MIN_EVO_VERSION - 1
-    with pytest.raises(UnsupportedProtocolVersion):
-        CasambiClientEvolution(
             address_or_device="AA:BB:CC:DD:EE:FF",
             dataCallback=data_cb,
             disonnectedCallback=disconnect_cb,

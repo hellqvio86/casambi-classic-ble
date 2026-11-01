@@ -32,14 +32,12 @@ class IncomingPacketType(IntEnum):
     NetworkConfig = 9
 
 
-MIN_EVO_VERSION: Final[int] = 10
-MAX_EVO_VERSION: Final[int] = 11
-FIRST_EVO_VERSION: Final[int] = 10
+FIRST_UNSUPPORTED_PROTOCOL_VERSION: Final[int] = 10
 MIN_SUPPORTED_CLASSIC_VERSION: Final[int] = 5
 
 
 def isClassicNetwork(version: int) -> bool:
-    return version < FIRST_EVO_VERSION
+    return version < FIRST_UNSUPPORTED_PROTOCOL_VERSION
 
 
 CLASSIC_AUTH_LEVEL_MANAGER: Final = 3

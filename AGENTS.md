@@ -24,7 +24,7 @@ casambi-classic-ble/
 │   │   ├── _adv.py             # Advertisement and beacon parsing helpers
 │   │   ├── _cache.py           # Local filesystem cache management for network topology & keys
 │   │   ├── _casambi.py         # High-level Casambi network session controller
-│   │   ├── _client.py          # BLE GATT client transport (CasambiClientClassic / Evolution)
+│   │   ├── _client.py          # BLE GATT client transport (CasambiClientClassic)
 │   │   ├── _constants.py       # Internal protocol version bounds, UUIDs, and packet enums
 │   │   ├── _discover.py        # BLE discovery helper for Casambi service UUIDs
 │   │   ├── _encryption.py      # AES-ECB / CMAC packet encryption & signature verification
@@ -36,10 +36,14 @@ casambi-classic-ble/
 │   │   ├── _unit.py            # Unit, UnitState, UnitControl, Group, and Scene data models
 │   │   ├── constants.py        # Public UUIDs, opcodes, BLE service constants
 │   │   ├── device.py           # Direct CasambiDevice implementation (BLE connect, control, state)
-│   │   ├── errors.py           # Protocol, authentication, and Bluetooth error classes
-│   │   ├── exceptions.py       # Core library exception hierarchy
+│   │   ├── errors.py           # Backwards-compatible exception shim (deprecated)
+│   │   ├── exceptions.py       # Core library unified exception hierarchy
 │   │   ├── py.typed            # PEP 561 typing marker
 │   │   ├── scanner.py          # CasambiScanner implementation (discovery via Bleak)
+│   │   ├── utils/              # Security and platform utility helpers
+│   │   │   ├── __init__.py     # Utility exports (masking, permissions)
+│   │   │   ├── mask.py         # Sensitive data and MAC masking helpers
+│   │   │   └── permissions.py  # Cross-platform secure filesystem permissions abstraction
 │   │   └── cloud/              # Casambi Cloud REST & WebSocket bridge
 │   │       ├── __init__.py     # CasambiCloud context manager & interface
 │   │       ├── api.py          # REST API sessions & endpoints

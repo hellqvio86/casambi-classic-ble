@@ -131,19 +131,19 @@ class CasambiClient(ABC):
                 self._on_disconnect,
                 use_services_cache=False,
             )
-        except BleakNotFoundError as e:
+        except BleakNotFoundError as err:
             # Guess that this is the error reason since there are no better error types
             self._logger.error("Failed to find unit.", exc_info=True)
-            raise BluetoothDeviceNotFoundError from e
-        except BleakError as e:
-            self._logger.error("Failed to connect.", exc_info=True)
-            raise BluetoothError(e.args) from e
-        except (BleakOutOfConnectionSlotsError, BleakAbortedError) as e:
+            raise BluetoothDeviceNotFoundError("Device not found") from err
+        except (BleakOutOfConnectionSlotsError, BleakAbortedError) as err:
             self._logger.warning("Transient connection error", exc_info=True)
-            raise BluetoothError() from e
-        except Exception as e:
+            raise BluetoothError(str(err) or "Transient connection error") from err
+        except BleakError as err:
+            self._logger.error("Failed to connect.", exc_info=True)
+            raise BluetoothError(str(err) or "Failed to connect") from err
+        except Exception as err:
             self._logger.error("Unkown connection failure.", exc_info=True)
-            raise BluetoothError from e
+            raise BluetoothError(str(err) or "Unknown connection failure") from err
 
         self._logger.info(f"Connected to {self.address}")
         self._connectionState = ConnectionState.CONNECTED
@@ -167,16 +167,16 @@ class CasambiClient(ABC):
                 # Try to loose any races here.
                 # Otherwise a state change caused by the last packet might not have been handled yet
                 await asyncio.sleep(0.001)
-                await self._activityLock.acquire()
-                try:
-                    self._callbackMulitplexer(handle, data)
-                except Exception:
-                    self._logger.error("Failed to process callback.", exc_info=True)
-                finally:
-                    self._callbackQueue.task_done()
-                    self._activityLock.release()
-        except TimeoutError:
+                async with self._activityLock:
+                    try:
+                        self._callbackMulitplexer(handle, data)
+                    except Exception:
+                        self._logger.error("Failed to process callback.", exc_info=True)
+                    finally:
+                        self._callbackQueue.task_done()
+        except asyncio.CancelledError:
             self._logger.info("Callback processing task cancelled.")
+            raise
 
     def _callbackMulitplexer(
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
@@ -220,8 +220,7 @@ class CasambiClient(ABC):
     async def send(self, packet: bytes, retries: int = 2) -> None:
         self._checkState(ConnectionState.AUTHENTICATED)
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             self._logger.debug(f"Sending packet {packet.hex()} with counter {self._outPacketCount}")
             retry = 0
             while True:
@@ -235,8 +234,6 @@ class CasambiClient(ABC):
                     await asyncio.sleep(0.5)
 
             self._outPacketCount += 1
-        finally:
-            self._activityLock.release()
 
     @abstractmethod
     async def _sendInternal(self, packet: bytes) -> None:
@@ -293,16 +290,15 @@ class CasambiClientEvolution(CasambiClient):
     async def _wait_timeout(self, evt: asyncio.Event, timeout: int = 15) -> None:
         try:
             await asyncio.wait_for(evt.wait(), timeout)
-        except TimeoutError as e:
-            raise BluetoothError("Timed out while waiting for a response.") from e
+        except TimeoutError as err:
+            raise BluetoothError("Timed out while waiting for a response.") from err
 
     async def exchangeKey(self, retries: int = 2) -> None:
         self._checkState(ConnectionState.CONNECTED)
 
         self._logger.info("Starting key exchange...")
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             # Initiate communication with device.  The initial GATT read can fail
             # transiently (e.g. ATT error 0x0e) if the device is not yet ready for
             # GATT operations immediately after connection.  Retry with the same
@@ -312,10 +308,10 @@ class CasambiClientEvolution(CasambiClient):
                 try:
                     firstResp = await self._gattClient.read_gatt_char(CASA_AUTH_CHAR_UUID)
                     break
-                except BleakError as exc:
+                except BleakError as err:
                     retry += 1
                     if retry > retries:
-                        raise BluetoothError("Failed to initiate GATT read.") from exc
+                        raise BluetoothError("Failed to initiate GATT read.") from err
                     self._logger.debug("Transient error reading auth characteristic, retrying...")
                     await asyncio.sleep(0.5)
             self._logger.debug(f"Got {firstResp.hex()}")
@@ -356,38 +352,33 @@ class CasambiClientEvolution(CasambiClient):
                     self._queueCallback,
                     bluez={"use_start_notify": True},
                 )
-            except BleakError as exc:
-                raise BluetoothError("Failed to initiate GATT notify.") from exc
-        finally:
-            self._activityLock.release()
+            except BleakError as err:
+                raise BluetoothError("Failed to initiate GATT notify.") from err
 
         # Wait for key exchange, will get notified by _exchNotifyCallback
         await self._wait_timeout(self._notifySignal)
-        await self._activityLock.acquire()
-        try:
-            self._notifySignal.clear()
-            if self._connectionState == ConnectionState.ERROR:
-                raise ProtocolError("Invalid key exchange initiation.")
+        async with self._activityLock:
+            try:
+                self._notifySignal.clear()
+                if self._connectionState == ConnectionState.ERROR:
+                    raise ProtocolError("Invalid key exchange initiation.")
 
-            # Respond to key exchange
-            pubNums = self._pubKey.public_numbers()
-            keyExchResponse = struct.pack(
-                ">B32s32sB",
-                0x2,
-                pubNums.x.to_bytes(32, byteorder="little", signed=False),
-                pubNums.y.to_bytes(32, byteorder="little", signed=False),
-                0x1,
-            )
-            await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, keyExchResponse)
-        except BleakError as exc:
-            raise BluetoothError("GATT write failed during key exchange.") from exc
-        finally:
-            self._activityLock.release()
+                # Respond to key exchange
+                pubNums = self._pubKey.public_numbers()
+                keyExchResponse = struct.pack(
+                    ">B32s32sB",
+                    0x2,
+                    pubNums.x.to_bytes(32, byteorder="little", signed=False),
+                    pubNums.y.to_bytes(32, byteorder="little", signed=False),
+                    0x1,
+                )
+                await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, keyExchResponse)
+            except BleakError as err:
+                raise BluetoothError("GATT write failed during key exchange.") from err
 
         # Wait for success response from _exchNotifyCallback
         await self._wait_timeout(self._notifySignal)
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             self._notifySignal.clear()
             if self._connectionState == ConnectionState.ERROR:  # type: ignore[comparison-overlap]
                 raise ProtocolError("Failed to negotiate key!")
@@ -400,8 +391,6 @@ class CasambiClientEvolution(CasambiClient):
                     self._connectionState = ConnectionState.KEY_EXCHANGED
                 else:
                     self._connectionState = ConnectionState.AUTHENTICATED
-        finally:
-            self._activityLock.release()
 
     def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         if data[0] == 0x2:
@@ -460,8 +449,7 @@ class CasambiClientEvolution(CasambiClient):
             # and we don't want that packet to end up in _authNofityCallback.
             return
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             # Compute client auth digest
             hashFcnt = sha256()
             hashFcnt.update(key.key)
@@ -477,22 +465,17 @@ class CasambiClientEvolution(CasambiClient):
             authPacket += authDig
             await self._writeEncPacket(authPacket, 1, CASA_AUTH_CHAR_UUID)
             self._outPacketCount += 1
-        finally:
-            self._activityLock.release()
 
         # Wait for auth response
         await self._wait_timeout(self._notifySignal)
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             self._notifySignal.clear()
             if self._connectionState == ConnectionState.ERROR:
                 raise ProtocolError("Failed to verify authentication response.")
             else:
                 self._connectionState = ConnectionState.AUTHENTICATED
                 self._logger.info("Authentication successful")
-        finally:
-            self._activityLock.release()
 
     def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         self._logger.info("Processing authentication response...")
@@ -606,14 +589,14 @@ class CasambiClientEvolution(CasambiClient):
         encPacket = self._encryptor.encryptThenMac(packet, self._getNonce(id))
         try:
             await self._gattClient.write_gatt_char(char, encPacket)
-        except BleakError as e:
-            if e.args and e.args[0] == "Not connected":
+        except BleakError as err:
+            if err.args and err.args[0] == "Not connected":
                 self._logger.debug("Unexpected write while disconnected.", exc_info=True)
                 self._connectionState = ConnectionState.NONE
                 raise ConnectionStateError(
                     ConnectionState.AUTHENTICATED, ConnectionState.NONE
-                ) from e
-            raise BluetoothError from e
+                ) from err
+            raise BluetoothError from err
 
     def _getNonce(self, id: int | bytes) -> bytes:
         if isinstance(id, int):
@@ -664,8 +647,7 @@ class CasambiClientClassic(CasambiClient):
 
         self._logger.info("Starting key exchange...")
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             # Initiate communication with device.  The initial GATT read can fail
             # transiently (e.g. ATT error 0x0e) if the device is not yet ready for
             # GATT operations immediately after connection.  Retry with the same
@@ -675,10 +657,10 @@ class CasambiClientClassic(CasambiClient):
                 try:
                     firstResp = await self._gattClient.read_gatt_char(CASA_AUTH_CHAR_UUID)
                     break
-                except BleakError as exc:
+                except BleakError as err:
                     retry += 1
                     if retry > retries:
-                        raise BluetoothError("Failed to initiate GATT read.") from exc
+                        raise BluetoothError("Failed to initiate GATT read.") from err
                     self._logger.debug("Transient error reading auth characteristic, retrying...")
                     await asyncio.sleep(0.5)
             self._logger.debug(f"Got {firstResp.hex()}")
@@ -712,11 +694,9 @@ class CasambiClientClassic(CasambiClient):
                     self._queueCallback,
                     bluez={"use_start_notify": True},
                 )
-            except BleakError as exc:
-                raise BluetoothError("Failed to initiate GATT notify.") from exc
+            except BleakError as err:
+                raise BluetoothError("Failed to initiate GATT notify.") from err
             self._connectionState = ConnectionState.KEY_EXCHANGED
-        finally:
-            self._activityLock.release()
 
     def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
@@ -724,8 +704,7 @@ class CasambiClientClassic(CasambiClient):
     async def authenticate(self) -> None:
         self._checkState(ConnectionState.KEY_EXCHANGED)
 
-        await self._activityLock.acquire()
-        try:
+        async with self._activityLock:
             # We only send the version for now and not the time.
             self._logger.info("Sending version.")
             await self._sendInternal(b"\x00\x01\x0b")
@@ -733,8 +712,6 @@ class CasambiClientClassic(CasambiClient):
             self._outPacketCount += 1
 
             self._connectionState = ConnectionState.AUTHENTICATED
-        finally:
-            self._activityLock.release()
 
     def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
@@ -743,6 +720,10 @@ class CasambiClientClassic(CasambiClient):
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
     ) -> None:
         self._logger.debug(f"Incoming data: {data.hex()}")
+
+        if len(data) < 1:
+            self._logger.error("Received empty notification frame. Ignoring.")
+            return
 
         unitId = data[0]
         if unitId == 0x00:
@@ -774,9 +755,15 @@ class CasambiClientClassic(CasambiClient):
                 extra2Val = -1
 
                 if extra1:
+                    if statePos >= len(data):
+                        self._logger.error(f"Truncated frame reading extra1 at pos {pos}. Abort.")
+                        break
                     extra1Val = data[statePos]
                     statePos += 1
                 if extra2:
+                    if statePos >= len(data):
+                        self._logger.error(f"Truncated frame reading extra2 at pos {pos}. Abort.")
+                        break
                     extra2Val = data[statePos]
                     statePos += 1
 
@@ -803,8 +790,8 @@ class CasambiClientClassic(CasambiClient):
 
     async def _sendInternal(self, packet: bytes) -> None:
         sequence = int.to_bytes(self._outPacketCount & 0xFFFF, 2, "big")
-        if sequence == b"\0":
-            sequence = b"\x01"
+        if sequence == b"\x00\x00":
+            sequence = b"\x00\x01"
             self._outPacketCount += 1
 
         outPacket = sequence + packet
@@ -817,11 +804,11 @@ class CasambiClientClassic(CasambiClient):
 
         try:
             await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, outPacket)
-        except BleakError as e:
-            if e.args and e.args[0] == "Not connected":
+        except BleakError as err:
+            if err.args and err.args[0] == "Not connected":
                 self._logger.debug("Unexpected write while disconnected.", exc_info=True)
                 self._connectionState = ConnectionState.NONE
                 raise ConnectionStateError(
                     ConnectionState.AUTHENTICATED, ConnectionState.NONE
-                ) from e
-            raise BluetoothError from e
+                ) from err
+            raise BluetoothError from err

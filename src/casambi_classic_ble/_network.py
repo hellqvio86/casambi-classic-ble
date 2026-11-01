@@ -202,7 +202,8 @@ class Network:
         if not self.authenticated() and not forceOffline:
             raise AuthenticationError("Not authenticated!")
 
-        assert self._id is not None, "Network id must be set."
+        if self._id is None:
+            raise RuntimeError("Network id must be set.")
 
         # TODO: Save and send revision to receive actual updates?
 

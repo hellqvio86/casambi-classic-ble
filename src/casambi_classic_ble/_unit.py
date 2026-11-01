@@ -410,10 +410,10 @@ class UnitState:
     @staticmethod
     def int_from_hs(hs: tuple[float, float], length: int) -> int:
         hueLen = (length * 10) // 18
-        assert hueLen > 0, "Invalid HS length"
-        hueMask: int = 2**hueLen - 1
         satLen = length - hueLen
-        assert satLen > 0, "Invalid HS length"
+        if hueLen <= 0 or satLen <= 0:
+            raise ValueError("Invalid HS length")
+        hueMask: int = 2**hueLen - 1
         satMask: int = 2**satLen - 1
 
         h, s = hs
@@ -422,10 +422,10 @@ class UnitState:
     @staticmethod
     def hs_from_int(val: int, length: int) -> tuple[float, float]:
         hueLen = (length * 10) // 18
-        assert hueLen > 0, "Invalid HS length"
-        hueMask: int = 2**hueLen - 1
         satLen = length - hueLen
-        assert satLen > 0, "Invalid HS length"
+        if hueLen <= 0 or satLen <= 0:
+            raise ValueError("Invalid HS length")
+        hueMask: int = 2**hueLen - 1
         satMask: int = 2**satLen - 1
 
         h = (val >> satLen) / hueMask
@@ -434,7 +434,8 @@ class UnitState:
 
     @staticmethod
     def int_from_rgb(rgb: tuple[int, int, int], length: int) -> int:
-        assert length % 3 == 0, "Invalid RGB length"
+        if length % 3 != 0:
+            raise ValueError("Invalid RGB length")
         scale = UnitState.RGB_RESOLUTION - (length // 3)
         scaledValue = 0
         for i in range(3):
@@ -443,7 +444,8 @@ class UnitState:
 
     @staticmethod
     def rgb_from_int(val: int, length: int) -> tuple[int, int, int]:
-        assert length % 3 == 0, "Invalid RGB length"
+        if length % 3 != 0:
+            raise ValueError("Invalid RGB length")
         compLen = length // 3
         rgb = []
         scale = UnitState.RGB_RESOLUTION - compLen
@@ -457,7 +459,8 @@ class UnitState:
     @staticmethod
     def int_from_xy(xy: tuple[float, float], length: int) -> int:
         coordLen = length // 2
-        assert coordLen > 0, "Invalid XY length"
+        if coordLen <= 0:
+            raise ValueError("Invalid XY length")
         x, y = xy
         xyMask: int = 2**coordLen - 1
         return (round(x * xyMask) << coordLen) | round(y * xyMask)
@@ -465,7 +468,8 @@ class UnitState:
     @staticmethod
     def xy_from_int(val: int, length: int) -> tuple[float, float]:
         coordLen = length // 2
-        assert coordLen > 0, "Invalid XY length"
+        if coordLen <= 0:
+            raise ValueError("Invalid XY length")
         xyMask: int = 2**coordLen - 1
         y = val & xyMask
         x = (val >> coordLen) & xyMask
@@ -474,14 +478,16 @@ class UnitState:
     @staticmethod
     def int_from_temperature(temperature: int, min_temp: int, max_temp: int, length: int) -> int:
         clampedTemp = min(max_temp, max(min_temp, temperature))
-        assert length > 0, "Invalid temp length"
+        if length <= 0:
+            raise ValueError("Invalid temp length")
         tempMask: int = 2**length - 1
         return (tempMask * (clampedTemp - min_temp)) // (max_temp - min_temp)
 
     @staticmethod
     def temperature_from_int(val: int, min_temp: int, max_temp: int, length: int) -> int:
         tempRange = max_temp - min_temp
-        assert length > 0, "Invalid temp length"
+        if length <= 0:
+            raise ValueError("Invalid temp length")
         tempMask: int = 2**length - 1
         return int(((val / tempMask) * tempRange) + min_temp)
 

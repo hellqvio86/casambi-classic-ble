@@ -87,6 +87,13 @@ ignore = [
 testpaths = ["src/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "error",
+    # pytest-cov emits this when conftest imports the package before coverage collector starts
+    "ignore::coverage.exceptions.CoverageWarning",
+    # Allow running the test suite under PYTHONOPTIMIZE=1 (python -O) per S-004 / A-006
+    "ignore:assertions not in test modules or plugins:pytest.PytestConfigWarning",
+]
 addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
 
 [tool.mypy]

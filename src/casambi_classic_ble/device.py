@@ -142,9 +142,9 @@ class CasambiDevice:
                         timeout=timeout,
                         disconnected_callback=self._on_bleak_disconnect,
                     )
-                except Exception as conn_err:
+                except Exception as err:
                     logger.warning(
-                        f"establish_connection failed, falling back to direct BleakClient: {conn_err}"
+                        f"establish_connection failed, falling back to direct BleakClient: {err}"
                     )
                     self.client = BleakClient(
                         self._ble_device,
@@ -177,8 +177,8 @@ class CasambiDevice:
         except asyncio.CancelledError:
             self.is_connected = False
             raise
-        except Exception as e:
-            logger.error(f"Failed to connect to {self.address}: {e}")
+        except Exception as err:
+            logger.error(f"Failed to connect to {self.address}: {err}")
             self.is_connected = False
             # Try to cleanup if stalled
             if self.client:
@@ -225,8 +225,8 @@ class CasambiDevice:
             except asyncio.CancelledError:
                 self.is_connected = False
                 raise
-            except Exception as e:
-                logger.error(f"Error disconnecting: {e}")
+            except Exception as err:
+                logger.error(f"Error disconnecting: {err}")
                 self.is_connected = False
 
     async def read_status_char(self) -> bytes | None:
@@ -237,8 +237,8 @@ class CasambiDevice:
             data = await self.client.read_gatt_char(self._status_uuid)
             logger.info(f"==> DIRECT READ STATUS: {data.hex()}")
             return bytes(data)
-        except Exception as e:
-            logger.error(f"Failed to read status char: {e}")
+        except Exception as err:
+            logger.error(f"Failed to read status char: {err}")
             return None
 
     def _notification_handler(self, sender: Any, data: bytearray) -> None:
@@ -364,9 +364,9 @@ class CasambiDevice:
 
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
-                logger.error(f"Failed to send command {command:#02x}: {e}")
-                raise CasambiCommandError(f"Failed to send command {command:#02x}: {e}") from e
+            except Exception as err:
+                logger.error(f"Failed to send command {command:#02x}: {err}")
+                raise CasambiCommandError(f"Failed to send command {command:#02x}: {err}") from err
 
     async def turn_on(self, *, unit_id: int | None = None) -> None:
         """Turn on a light unit or all units if unit_id is None."""
@@ -403,8 +403,8 @@ class CasambiDevice:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:
                 raise ValueError("Invalid address length")
-        except Exception as e:
-            raise CasambiDeviceError(f"Invalid address '{address}': {e}") from e
+        except Exception as err:
+            raise CasambiDeviceError(f"Invalid address '{address}': {err}") from err
         await self._send_command(command=0x81, payload=addr_bytes)
 
     async def turn_off_by_address(self, *, address: str) -> None:
@@ -415,8 +415,8 @@ class CasambiDevice:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:
                 raise ValueError("Invalid address length")
-        except Exception as e:
-            raise CasambiDeviceError(f"Invalid address '{address}': {e}") from e
+        except Exception as err:
+            raise CasambiDeviceError(f"Invalid address '{address}': {err}") from err
         await self._send_command(command=0x82, payload=addr_bytes)
 
     async def turn_on_broadcast(self) -> None:
@@ -502,7 +502,7 @@ class CasambiDevice:
                 except Exception:
                     pass
 
-        except Exception as e:
-            logger.error(f"Failed to read device info: {e}")
+        except Exception as err:
+            logger.error(f"Failed to read device info: {err}")
 
         return info

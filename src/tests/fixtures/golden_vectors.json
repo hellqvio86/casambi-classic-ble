@@ -177,5 +177,47 @@
     "opcode": 3,
     "final_frame_hex": "03ab3b",
     "provenance": "derived"
+  },
+  "crypto_session_vectors": {
+    "visitor": [
+      {
+        "description": "Visitor session packet (level command, seq 1)",
+        "auth_level": 2,
+        "sig_len": 4,
+        "key_hex": "0102030405060708090a0b0c0d0e0f10",
+        "connhash_hex": "a1b2c3d4e5f60718",
+        "packet_hex": "00010301ff",
+        "expected_sig_hex": "1459c583",
+        "expected_digested_hex": "1459c58300010301ff",
+        "expected_wire_hex": "021459c58300010301ff",
+        "provenance": "derived"
+      },
+      {
+        "description": "Visitor session packet (color temperature command, seq 2)",
+        "auth_level": 2,
+        "sig_len": 4,
+        "key_hex": "0102030405060708090a0b0c0d0e0f10",
+        "connhash_hex": "a1b2c3d4e5f60718",
+        "packet_hex": "000204010bb8",
+        "expected_sig_hex": "b6eea225",
+        "expected_digested_hex": "b6eea225000204010bb8",
+        "expected_wire_hex": "02b6eea225000204010bb8",
+        "provenance": "derived"
+      }
+    ],
+    "manager": [
+      {
+        "description": "Manager session packet (full 16-byte CMAC, level command, seq 1)",
+        "auth_level": 3,
+        "sig_len": 16,
+        "key_hex": "100f0e0d0c0b0a090807060504030201",
+        "connhash_hex": "a1b2c3d4e5f60718",
+        "packet_hex": "00010301ff",
+        "expected_sig_hex": "bccc01763aa898e160f3710cd4dbaa1d",
+        "expected_digested_hex": "bccc01763aa898e160f3710cd4dbaa1d00010301ff",
+        "expected_wire_hex": "03bccc01763aa898e160f3710cd4dbaa1d00010301ff",
+        "provenance": "derived"
+      }
+    ]
   }
 }

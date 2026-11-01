@@ -78,6 +78,11 @@ class TestProtocolGoldenVectors:
         assert "provenance" in golden_vectors["protected_mesh_xor"]
         assert golden_vectors["protected_mesh_xor"]["provenance"] in valid_provenances
 
+        for role_vectors in golden_vectors.get("crypto_session_vectors", {}).values():
+            for vec in role_vectors:
+                assert "provenance" in vec, f"Missing provenance in crypto vector: {vec}"
+                assert vec["provenance"] in valid_provenances
+
     @pytest.mark.asyncio
     async def test_set_level_encodings_match_golden_vectors(
         self,

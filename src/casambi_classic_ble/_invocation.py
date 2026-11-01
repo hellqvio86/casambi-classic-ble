@@ -66,8 +66,8 @@ def parse_invocation_stream(data: bytes) -> list[InvocationFrame]:
         if flags & _FLAG_HAS_ORIGIN_HANDLE:
             if pos >= len(data):
                 if _LOGGER:
-                    _LOGGER.debug(
-                        "INVOCATION frame truncated at origin_handle (offset=%d flags=0x%04x).",
+                    _LOGGER.error(
+                        "Malformed packet: INVOCATION frame truncated at origin_handle (offset=%d flags=0x%04x).",
                         frame_offset,
                         flags,
                     )
@@ -78,8 +78,8 @@ def parse_invocation_stream(data: bytes) -> list[InvocationFrame]:
         payload_len = flags & 0x3F
         if pos + payload_len > len(data):
             if _LOGGER:
-                _LOGGER.debug(
-                    "INVOCATION frame truncated at payload (offset=%d flags=0x%04x payload_len=%d remaining=%d).",
+                _LOGGER.error(
+                    "Malformed packet: INVOCATION frame truncated at payload (offset=%d flags=0x%04x payload_len=%d remaining=%d).",
                     frame_offset,
                     flags,
                     payload_len,

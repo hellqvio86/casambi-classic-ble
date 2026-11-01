@@ -225,6 +225,14 @@ This project uses an automated GitHub Actions flow configured in [`.github/workf
 
 ---
 
+## 🔀 Branching, Pull Requests & Human Approval Mandate
+
+- **Always Use Pull Requests:** All changes (features, fixes, refactoring, dependency bumps, docs) must be developed on a dedicated feature or fix branch and submitted via a Pull Request.
+- **Never Push Directly to `main`:** Direct pushes to `main` by automated agents or assistants are strictly forbidden.
+- **Only Humans Can Merge to `main`:** Merging pull requests to `main` is strictly reserved for human maintainers. Never use `gh pr merge`, automerge, or scripts to merge a PR to `main`.
+
+---
+
 ## 📝 Commit Conventions
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/):

@@ -1,11 +1,15 @@
 import hmac
 import logging
+import os
+from typing import Final
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.ciphers import Cipher
 from cryptography.hazmat.primitives.ciphers.algorithms import AES
 from cryptography.hazmat.primitives.ciphers.modes import CBC, ECB
 from cryptography.hazmat.primitives.cmac import CMAC
+
+_TRACE: Final[bool] = os.environ.get("CASAMBI_TRACE", "").lower() in ("1", "true", "yes")
 
 
 def _xor(data: bytes, key: bytes) -> bytes:
@@ -34,12 +38,20 @@ class Encryptor:
         self._logger = logging.getLogger(__name__)
 
     def encryptThenMac(self, packet: bytes, nonce: bytes, headerLen: int = 4) -> bytes:
-        self._logger.debug(
-            f"Encrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
-        )
+        if _TRACE:
+            self._logger.debug(
+                f"Encrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
+            )
+        else:
+            self._logger.debug("Encrypting packet of len %d", len(packet))
+
         packet = bytes(packet)
         packet = packet[:headerLen] + self._encryptInternal(packet[headerLen:], nonce)
-        self._logger.debug(f"Encrypted packet: {packet.hex()}")
+
+        if _TRACE:
+            self._logger.debug(f"Encrypted packet: {packet.hex()}")
+        else:
+            self._logger.debug("Encrypted packet of len %d", len(packet))
 
         cmacCipher = CMAC(self._aes)
         cmacCipher.update(packet)
@@ -47,15 +59,23 @@ class Encryptor:
         return packet
 
     def decryptAndVerify(self, packet: bytes, nonce: bytes, headerLen: int = 4) -> bytes:
-        self._logger.debug(
-            f"Decrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
-        )
+        if _TRACE:
+            self._logger.debug(
+                f"Decrypting packet: {packet.hex()} of len {len(packet)} with nonce {nonce.hex()}"
+            )
+        else:
+            self._logger.debug("Decrypting packet of len %d", len(packet))
+
         packet = bytes(packet)
         ciphertext, packetMac = packet[0:-16], packet[-16:]
 
         # Always decrypt for timing reasons
         plaintext = self._encryptInternal(ciphertext[headerLen:], nonce)
-        self._logger.debug(f"Decrypted package: {plaintext.hex()}")
+
+        if _TRACE:
+            self._logger.debug(f"Decrypted packet: {plaintext.hex()}")
+        else:
+            self._logger.debug("Decrypted packet of len %d", len(plaintext))
 
         cmacCipher = CMAC(self._aes)
         cmacCipher.update(ciphertext)
@@ -111,9 +131,7 @@ class ClassicEncryptor:
         pckMac = packet[: self._sig_len]
 
         if not hmac.compare_digest(computedMac, pckMac):
-            self._logger.warning(
-                f"Signature verification failed. Computed: {computedMac.hex()}, packet: {pckMac.hex()}"
-            )
+            self._logger.warning("Signature verification failed.")
             raise InvalidSignature("Signature verification failed.")
 
         return packet[self._sig_len :]

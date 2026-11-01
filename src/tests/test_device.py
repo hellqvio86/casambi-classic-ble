@@ -186,6 +186,15 @@ class TestCasambiDevice:
         await device.authenticate(password="secret")
         mock_bleak_client.write_gatt_char.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_authenticate_empty_password_raises(self, mock_bleak_client):
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        device.client = mock_bleak_client
+        device.is_connected = True
+
+        with pytest.raises(CasambiDeviceError, match="Password required"):
+            await device.authenticate(password="")
+
     def test_parse_status(self):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
         # Opcode 0x03 is the verified status response opcode
@@ -313,11 +322,11 @@ class TestCasambiDevice:
         assert info["firmware"] == "26.5"
 
     @pytest.mark.asyncio
-    async def test_send_command_with_session_key(self, mock_bleak_client):
+    async def test_send_command(self, mock_bleak_client):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
         device.client = mock_bleak_client
         device.is_connected = True
-        device._session_key = b"\x01\x02\x03\x04"
+        assert not hasattr(device, "_session_key")
 
         # Send command with payload
         await device._send_command(command=0x03, payload=b"\x10\x20")

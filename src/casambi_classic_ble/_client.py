@@ -193,7 +193,9 @@ class CasambiClient(ABC):
             self._inPacketCount += 1
             self._establishedNotifyCallback(handle, data)
         else:
-            self._logger.warning(f"Unhandled notify in state {self._connectionState}: {data.hex()}")
+            self._logger.warning(
+                "Unhandled notify in state %s (%d bytes)", self._connectionState, len(data)
+            )
 
     @abstractmethod
     async def exchangeKey(self, retries: int = 2) -> None:
@@ -432,7 +434,7 @@ class CasambiClientEvolution(CasambiClient):
                 self._connectionState = ConnectionState.ERROR
                 self._notifySignal.set()
         else:
-            self._logger.error(f"Unexcpedted package type in {data.hex()}.")
+            self._logger.error("Unexpected package type in packet of %d bytes", len(data))
             self._connectionState = ConnectionState.ERROR
             self._notifySignal.set()
 
@@ -506,7 +508,7 @@ class CasambiClientEvolution(CasambiClient):
             )
         except InvalidSignature:
             # We only drop packets with invalid signature here instead of going into an error state
-            self._logger.error(f"Invalid signature for packet {data.hex()}!")
+            self._logger.error("Invalid signature for packet of %d bytes!", len(data))
             return
 
         packetType = packetContents[0]

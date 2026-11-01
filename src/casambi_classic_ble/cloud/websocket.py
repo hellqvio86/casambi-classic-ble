@@ -10,6 +10,8 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 from websockets.typing import Subprotocol
 
+from ..utils import mask_sensitive_data
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -44,7 +46,8 @@ class CasambiCloudWebsocket:
         try:
             result = await self.web_sock.recv()
             data = json.loads(result)
-            _LOGGER.debug(f"ws_open response: {data}")
+            safe_data = mask_sensitive_data(data=data)
+            _LOGGER.debug(f"ws_open response: {safe_data}")
 
             if data.get("wireStatus") == "openWireSucceed":
                 self.connected = True

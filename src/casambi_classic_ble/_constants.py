@@ -8,8 +8,12 @@ CASA_AUTH_CHAR_UUID: Final = "c9ffde48-ca5a-0001-ab83-8f519b482f77"
 
 KEY_CACHE_FILE: Final = "casambi_lookup.json"
 LEGACY_KEY_CACHE_FILE: Final = "keys.pck"
-SESSION_CACHE_FILE: Final = "session.pck"
-TYPES_CACHE_FILE: Final = "types.pck"
+SESSION_CACHE_FILE: Final = "casambi_session.json"
+LEGACY_SESSION_CACHE_FILE: Final = "session.pck"
+TYPES_CACHE_FILE: Final = "casambi_types.json"
+LEGACY_TYPES_CACHE_FILE: Final = "types.pck"
+NETWORK_ID_CACHE_FILE: Final = "casambi_network_id.txt"
+LEGACY_NETWORK_ID_CACHE_FILE: Final = "networkid"
 
 
 @unique

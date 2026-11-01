@@ -6,6 +6,7 @@ from typing import Any
 import aiohttp
 
 from ..exceptions import CasambiCloudApiException
+from ..utils import DEFAULT_SENSITIVE_KEYS, mask_sensitive_data
 from .api import CasambiCloudAPI
 from .websocket import CasambiCloudWebsocket
 
@@ -133,4 +134,10 @@ class CasambiCloud:
         await self._ws.send_command(unit_id=unit_id, target_controls=target_controls)
 
 
-__all__ = ["CasambiCloud"]
+__all__ = [
+    "CasambiCloud",
+    "CasambiCloudAPI",
+    "CasambiCloudWebsocket",
+    "DEFAULT_SENSITIVE_KEYS",
+    "mask_sensitive_data",
+]

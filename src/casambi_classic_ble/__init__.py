@@ -5,6 +5,7 @@ Bluetooth Low Energy library for Casambi classic firmware lighting control.
 
 from importlib.metadata import PackageNotFoundError, version
 
+from . import utils
 from ._casambi import Casambi
 from ._discover import discover
 from ._unit import (
@@ -61,4 +62,5 @@ __all__ = [
     "UnitState",
     "UnitType",
     "discover",
+    "utils",
 ]

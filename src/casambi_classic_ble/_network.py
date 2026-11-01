@@ -1,9 +1,10 @@
 import json
 import logging
 import pickle
+import warnings
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import httpx
 from httpx import AsyncClient, RequestError
@@ -11,6 +12,10 @@ from httpx import AsyncClient, RequestError
 from ._cache import Cache
 from ._constants import (
     DEVICE_NAME,
+    LEGACY_NETWORK_ID_CACHE_FILE,
+    LEGACY_SESSION_CACHE_FILE,
+    LEGACY_TYPES_CACHE_FILE,
+    NETWORK_ID_CACHE_FILE,
     SESSION_CACHE_FILE,
     TYPES_CACHE_FILE,
     isClassicNetwork,
@@ -23,6 +28,7 @@ from .errors import (
     NetworkOnlineUpdateNeededError,
     NetworkUpdateError,
 )
+from .utils import set_secure_file_permissions
 
 
 @dataclass()
@@ -37,6 +43,32 @@ class _NetworkSession:
 
     def expired(self) -> bool:
         return datetime.now(UTC) > self.expires
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session": self.session,
+            "network": self.network,
+            "manager": self.manager,
+            "keyID": self.keyID,
+            "expires": self.expires.isoformat(),
+            "role": self.role,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "_NetworkSession":
+        raw_expires = data["expires"]
+        if isinstance(raw_expires, (int, float)):
+            dt = datetime.fromtimestamp(raw_expires / 1000, UTC)
+        else:
+            dt = datetime.fromisoformat(str(raw_expires))
+        return cls(
+            session=str(data["session"]),
+            network=str(data["network"]),
+            manager=bool(data["manager"]),
+            keyID=int(data["keyID"]),
+            expires=dt,
+            role=int(data.get("role", 3)),
+        )
 
 
 class Network:
@@ -71,25 +103,116 @@ class Network:
     async def _loadSession(self) -> None:
         self._logger.debug("Loading session...")
         async with self._cache as cachePath:
-            if await (cachePath / SESSION_CACHE_FILE).exists():
-                sessionData = await (cachePath / SESSION_CACHE_FILE).read_bytes()
-                self._session = pickle.loads(sessionData)
-                self._logger.info("Session loaded.")
+            json_file = cachePath / SESSION_CACHE_FILE
+            pickle_file = cachePath / LEGACY_SESSION_CACHE_FILE
+
+            if await json_file.exists():
+                try:
+                    raw_json = await json_file.read_text()
+                    data = json.loads(raw_json)
+                    self._session = _NetworkSession.from_dict(data)
+                    self._logger.info("Session loaded from JSON.")
+                    return
+                except Exception as err:
+                    self._logger.warning(f"Failed to load session from JSON: {err}")
+
+            if await pickle_file.exists():
+                warnings.warn(
+                    f"Legacy pickle session cache '{LEGACY_SESSION_CACHE_FILE}' is deprecated and "
+                    f"will be removed in a future release. Migrating session to secure JSON cache format.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                try:
+                    sessionData = await pickle_file.read_bytes()
+                    self._session = pickle.loads(sessionData)
+                    self._logger.info("Session loaded from legacy pickle.")
+
+                    # Automatically migrate to JSON format and remove old pickle file
+                    await self._save_session_to_cache(cachePath)
+                    try:
+                        await pickle_file.unlink()
+                    except Exception as err:
+                        self._logger.debug(f"Could not remove old pickle session cache: {err}")
+                    return
+                except Exception as err:
+                    self._logger.warning(f"Failed to load legacy pickle session cache: {err}")
+
+    async def _save_session_to_cache(self, cachePath: Any) -> None:
+        if self._session is None:
+            return
+        json_file = cachePath / SESSION_CACHE_FILE
+        await json_file.write_text(json.dumps(self._session.to_dict(), indent=2))
+        set_secure_file_permissions(path=json_file)
 
     async def _saveSesion(self) -> None:
         self._logger.debug("Saving session...")
         async with self._cache as cachePath:
-            sessionData = pickle.dumps(self._session)
-            await (cachePath / SESSION_CACHE_FILE).write_bytes(sessionData)
+            await self._save_session_to_cache(cachePath)
+
+    _saveSession = _saveSesion
 
     async def _loadTypeCache(self) -> None:
         self._logger.debug("Loading unit type cache...")
         async with self._cache as cachePath:
-            if await (cachePath / TYPES_CACHE_FILE).exists():
-                typeData = await (cachePath / TYPES_CACHE_FILE).read_bytes()
+            json_file = cachePath / TYPES_CACHE_FILE
+            pickle_file = cachePath / LEGACY_TYPES_CACHE_FILE
+
+            if await json_file.exists():
                 try:
-                    loaded = pickle.loads(typeData)
+                    raw_json = await json_file.read_text()
+                    data = json.loads(raw_json)
                     clean_types: dict[int, tuple[UnitType | None, datetime]] = {}
+                    for key_str, entry in data.items():
+                        type_id = int(key_str)
+                        expiry = datetime.fromisoformat(entry["expires"])
+                        unit_type_dict = entry.get("unit_type")
+                        if unit_type_dict is not None:
+                            controls = [
+                                UnitControl(
+                                    type=UnitControlType(c["type"]),
+                                    offset=int(c["offset"]),
+                                    length=int(c["length"]),
+                                    default=int(c["default"]),
+                                    readonly=bool(c["readonly"]),
+                                    min=c.get("min"),
+                                    max=c.get("max"),
+                                )
+                                for c in unit_type_dict["controls"]
+                            ]
+                            unit_type = UnitType(
+                                id=int(unit_type_dict["id"]),
+                                model=str(unit_type_dict["model"]),
+                                manufacturer=str(unit_type_dict["manufacturer"]),
+                                mode=str(unit_type_dict["mode"]),
+                                stateLength=int(unit_type_dict["stateLength"]),
+                                controls=controls,
+                            )
+                        else:
+                            unit_type = None
+                        clean_types[type_id] = (unit_type, expiry)
+                    self._unitTypes = clean_types
+                    self._logger.info("Unit type cache loaded from JSON.")
+                    return
+                except Exception as err:
+                    self._logger.warning(
+                        f"Failed to load unit type cache from JSON, resetting: {err}",
+                        exc_info=True,
+                    )
+                    self._unitTypes = {}
+                    return
+
+            if await pickle_file.exists():
+                warnings.warn(
+                    f"Legacy pickle unit type cache '{LEGACY_TYPES_CACHE_FILE}' is deprecated and "
+                    f"will be removed in a future release. Migrating unit types to secure JSON cache format.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                try:
+                    typeData = await pickle_file.read_bytes()
+                    loaded = pickle.loads(typeData)
+                    clean_types = {}
                     for type_id, (unit_type, expiry) in loaded.items():
                         if unit_type is not None:
                             clean_controls = [
@@ -102,29 +225,83 @@ class Network:
                                 for c in unit_type.controls
                             ]
                             unit_type = replace(unit_type, controls=clean_controls)
-                        clean_types[type_id] = (unit_type, expiry)
+                        clean_types[int(type_id)] = (unit_type, expiry)
                     self._unitTypes = clean_types
-                    self._logger.info("Unit type cache loaded.")
-                except Exception:
+                    self._logger.info("Unit type cache loaded from legacy pickle.")
+
+                    # Automatically migrate to JSON format and remove old pickle file
+                    await self._save_type_cache_to_cache(cachePath)
+                    try:
+                        await pickle_file.unlink()
+                    except Exception as err:
+                        self._logger.debug(f"Could not remove old pickle types cache file: {err}")
+                    return
+                except Exception as err:
                     self._logger.warning(
-                        "Failed to load unit type cache, resetting.", exc_info=True
+                        f"Failed to load legacy pickle unit type cache, resetting: {err}",
+                        exc_info=True,
                     )
                     self._unitTypes = {}
+
+    async def _save_type_cache_to_cache(self, cachePath: Any) -> None:
+        data: dict[str, Any] = {}
+        for type_id, (unit_type, expiry) in self._unitTypes.items():
+            if unit_type is not None:
+                controls_data = [
+                    {
+                        "type": c.type.value if hasattr(c.type, "value") else int(c.type),
+                        "offset": c.offset,
+                        "length": c.length,
+                        "default": c.default,
+                        "readonly": c.readonly,
+                        "min": c.min,
+                        "max": c.max,
+                    }
+                    for c in unit_type.controls
+                ]
+                unit_type_data: dict[str, Any] | None = {
+                    "id": unit_type.id,
+                    "model": unit_type.model,
+                    "manufacturer": unit_type.manufacturer,
+                    "mode": unit_type.mode,
+                    "stateLength": unit_type.stateLength,
+                    "controls": controls_data,
+                }
+            else:
+                unit_type_data = None
+
+            data[str(type_id)] = {
+                "expires": expiry.isoformat(),
+                "unit_type": unit_type_data,
+            }
+
+        json_file = cachePath / TYPES_CACHE_FILE
+        await json_file.write_text(json.dumps(data, indent=2))
+        set_secure_file_permissions(path=json_file)
 
     async def _saveTypeCache(self) -> None:
         self._logger.debug("Saving type cache...")
         async with self._cache as cachePath:
-            typeData = pickle.dumps(self._unitTypes)
-            await (cachePath / TYPES_CACHE_FILE).write_bytes(typeData)
+            await self._save_type_cache_to_cache(cachePath)
 
     async def getNetworkId(self, forceOffline: bool = False) -> None:
         self._logger.info("Getting network id...")
 
         async with self._cache as cachePath:
-            networkCacheFile = cachePath / "networkid"
+            networkCacheFile = cachePath / NETWORK_ID_CACHE_FILE
+            legacyNetworkCacheFile = cachePath / LEGACY_NETWORK_ID_CACHE_FILE
 
             if await networkCacheFile.exists():
                 self._id = await networkCacheFile.read_text()
+            elif await legacyNetworkCacheFile.exists():
+                self._id = await legacyNetworkCacheFile.read_text()
+                # Migrate to new file with secure permissions
+                await networkCacheFile.write_text(self._id)
+                set_secure_file_permissions(path=networkCacheFile)
+                try:
+                    await legacyNetworkCacheFile.unlink()
+                except Exception as err:
+                    self._logger.debug(f"Could not migrate legacy network ID cache: {err}")
 
         if forceOffline:
             if not self._id:
@@ -158,8 +335,9 @@ class Network:
         if self._id != new_id:
             self._logger.info(f"Network id changed from {self._id} to {new_id}.")
             async with self._cache as cachePath:
-                networkCacheFile = cachePath / "networkid"
+                networkCacheFile = cachePath / NETWORK_ID_CACHE_FILE
                 await networkCacheFile.write_text(new_id)
+                set_secure_file_permissions(path=networkCacheFile)
             self._id = new_id
         self._logger.info(f"Got network id {self._id}.")
 
@@ -256,6 +434,7 @@ class Network:
                     async with self._cache as cachePath:
                         cachedNetworkPah = cachePath / f"{self._id}.json"
                         await cachedNetworkPah.write_bytes(res.content)
+                        set_secure_file_permissions(path=cachedNetworkPah)
                     network = updateResult
                     self._logger.info(
                         f"Fetched updated network with revision {self._networkRevision}"

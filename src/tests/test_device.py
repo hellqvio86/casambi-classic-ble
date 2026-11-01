@@ -552,3 +552,66 @@ class TestCasambiDevice:
         result = device.update_from_advertisement(mfr_data=mfr_data)
         assert result is not None
         assert len(successful_updates) == 1
+
+    def test_notification_handler_dispatches_to_state_subscribers(self):
+        """Active GATT notifications reach state subscribers with per-unit deduplication."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        updates = []
+        raw_notifications = []
+
+        unsubscribe = device.register_state_callback(callback=lambda state: updates.append(state))
+        device.set_notification_callback(callback=lambda data: raw_notifications.append(data))
+
+        # (a) Notification: opcode 0x03, unit 1, level 128 (0x80)
+        # format: [opcode (0x03), unit_id (0x01), level (0x80)]
+        pkt_unit_1 = bytearray([0x03, 0x01, 0x80])
+        device._notification_handler(sender="handle_8", data=pkt_unit_1)
+
+        assert len(updates) == 1
+        assert updates[-1]["id"] == 1
+        assert updates[-1]["on"] is True
+        assert updates[-1]["level_percent"] == 50
+        assert len(raw_notifications) == 1
+
+        # Identical repeat for unit 1 must be suppressed by state subscribers
+        device._notification_handler(sender="handle_8", data=pkt_unit_1)
+        assert len(updates) == 1  # suppressed
+        assert len(raw_notifications) == 2  # raw callback still gets packet
+
+        # (b) Unit 2 reporting identical state (on, 50%) must fire because unit ID is different
+        pkt_unit_2 = bytearray([0x03, 0x02, 0x80])
+        device._notification_handler(sender="handle_8", data=pkt_unit_2)
+        assert len(updates) == 2
+        assert updates[-1]["id"] == 2
+        assert updates[-1]["level_percent"] == 50
+
+        # Alternate back to unit 1 with changed state
+        pkt_unit_1_off = bytearray([0x03, 0x01, 0x00])
+        device._notification_handler(sender="handle_8", data=pkt_unit_1_off)
+        assert len(updates) == 3
+        assert updates[-1]["id"] == 1
+        assert updates[-1]["on"] is False
+
+        # (c) Callback raising does not break the handler or raw notification callback
+        def raising_subscriber(state):
+            raise ValueError("Boom")
+
+        device.register_state_callback(callback=raising_subscriber)
+        device.set_notification_callback(callback=lambda data: None)
+        # Should not raise
+        device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0xFF]))
+        assert len(updates) == 4
+        assert updates[-1]["level_percent"] == 100
+
+        # Raw notification callback raising does not bubble up or break state
+        def raising_raw(data):
+            raise RuntimeError("Raw boom")
+
+        device.set_notification_callback(callback=raising_raw)
+        device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0x10]))
+        assert len(updates) == 5
+
+        # (d) Unsubscribe works
+        unsubscribe()
+        device._notification_handler(sender="handle_8", data=bytearray([0x03, 0x01, 0x20]))
+        assert len(updates) == 5  # No new updates recorded

@@ -1,3 +1,5 @@
+import logging
+
 from casambi_classic_ble._invocation import parse_invocation_stream
 
 
@@ -78,18 +80,24 @@ def test_parse_invocation_stream_truncated_header():
     assert frames == []
 
 
-def test_parse_invocation_stream_truncated_origin_handle():
+def test_parse_invocation_stream_truncated_origin_handle(caplog):
     # Set flag 0x0200 without providing the byte
     raw = (0x0200).to_bytes(2, "big") + bytes(7)
-    frames = parse_invocation_stream(raw)
+    with caplog.at_level(logging.ERROR):
+        frames = parse_invocation_stream(raw)
     assert frames == []
+    assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
+    assert any(raw.hex() in rec.getMessage() for rec in caplog.records)
 
 
-def test_parse_invocation_stream_truncated_payload():
+def test_parse_invocation_stream_truncated_payload(caplog):
     # Set payload len to 10 but provide only 2 bytes
     raw = (10).to_bytes(2, "big") + bytes(7) + b"\x01\x02"
-    frames = parse_invocation_stream(raw)
+    with caplog.at_level(logging.ERROR):
+        frames = parse_invocation_stream(raw)
     assert frames == []
+    assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
+    assert any(raw.hex() in rec.getMessage() for rec in caplog.records)
 
 
 def test_parse_invocation_stream_trailing_bytes():

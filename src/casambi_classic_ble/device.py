@@ -480,9 +480,11 @@ class CasambiDevice:
         Enriched to match Casambi Cloud API structure.
         """
         if not isinstance(data, (bytes, bytearray)) or len(data) < 3:
+            raw_hex = data.hex() if isinstance(data, (bytes, bytearray)) else repr(data)
             logger.error(
-                "Malformed packet: status notification frame length %d is too short (expected >= 3 bytes).",
+                "Malformed packet: status notification frame length %d is too short (expected >= 3 bytes, packet=%s).",
                 len(data) if isinstance(data, (bytes, bytearray)) else 0,
+                raw_hex,
             )
             return {}
 

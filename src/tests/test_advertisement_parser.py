@@ -6,6 +6,7 @@ unexpected exceptions (such as IndexError, ValueError, struct.error).
 
 from __future__ import annotations
 
+import logging
 import random
 from typing import Any
 from unittest.mock import MagicMock
@@ -174,10 +175,13 @@ def test_advertisement_fuzz_random_bytes(mock_device: CasambiDevice) -> None:
     ],
 )
 def test_parse_status_truncated_returns_empty_dict(
-    mock_device: CasambiDevice, truncated_status: bytes
+    mock_device: CasambiDevice, truncated_status: bytes, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Status notification payloads < 3 bytes return an empty dictionary."""
-    assert mock_device.parse_status(data=truncated_status) == {}
+    """Status notification payloads < 3 bytes return an empty dictionary and log packet data."""
+    with caplog.at_level(logging.ERROR):
+        assert mock_device.parse_status(data=truncated_status) == {}
+    assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
+    assert any(truncated_status.hex() in rec.getMessage() for rec in caplog.records)
 
 
 def test_parse_status_fuzz_random_bytes(mock_device: CasambiDevice) -> None:

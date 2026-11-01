@@ -443,9 +443,10 @@ class CasambiClientClassic(CasambiClient):
             while pos < len(data):
                 if pos + 2 > len(data):
                     self._logger.error(
-                        "Malformed packet: incomplete header at position %d (frame length %d). Abort.",
+                        "Malformed packet: incomplete header at position %d (frame length %d, packet=%s). Abort.",
                         pos,
                         len(data),
+                        data.hex(),
                     )
                     break
 
@@ -464,8 +465,9 @@ class CasambiClientClassic(CasambiClient):
                 if extra1:
                     if statePos >= len(data):
                         self._logger.error(
-                            "Malformed packet: truncated frame reading extra1 at pos %d. Abort.",
+                            "Malformed packet: truncated frame reading extra1 at pos %d (packet=%s). Abort.",
                             pos,
+                            data.hex(),
                         )
                         break
                     extra1Val = data[statePos]
@@ -473,8 +475,9 @@ class CasambiClientClassic(CasambiClient):
                 if extra2:
                     if statePos >= len(data):
                         self._logger.error(
-                            "Malformed packet: truncated frame reading extra2 at pos %d. Abort.",
+                            "Malformed packet: truncated frame reading extra2 at pos %d (packet=%s). Abort.",
                             pos,
+                            data.hex(),
                         )
                         break
                     extra2Val = data[statePos]
@@ -482,10 +485,11 @@ class CasambiClientClassic(CasambiClient):
 
                 if statePos + stateLen > len(data):
                     self._logger.error(
-                        "Malformed packet: truncated payload of length %d at pos %d (frame length %d). Abort.",
+                        "Malformed packet: truncated payload of length %d at pos %d (frame length %d, packet=%s). Abort.",
                         stateLen,
                         pos,
                         len(data),
+                        data.hex(),
                     )
                     break
 

@@ -98,10 +98,12 @@ class TestClassicEncryptorMalformedLogging:
         # Packet with only 3 bytes (< 4 byte signature)
         with (
             caplog.at_level(logging.ERROR),
-            pytest.raises(ValueError, match="shorter than signature length"),
+            pytest.raises(ValueError, match="shorter than signature length") as exc_info,
         ):
             encryptor.verify(packet=b"\x01\x02\x03", connhash=connhash)
 
+        assert "010203" in str(exc_info.value)
+        assert any("010203" in rec.getMessage() for rec in caplog.records)
         assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
         assert any(rec.levelno == logging.ERROR for rec in caplog.records)
 
@@ -116,7 +118,7 @@ class TestClassicEncryptorMalformedLogging:
         assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
 
     def test_verify_signature_failure_logs_error(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Signature mismatch must log ERROR and raise InvalidSignature."""
+        """Signature mismatch must log ERROR and raise InvalidSignature containing packet data."""
         encryptor = ClassicEncryptor(key=b"\x01" * 16, sig_len=4)
         connhash = b"\x02" * 8
         payload = b"payload_bytes"
@@ -128,13 +130,15 @@ class TestClassicEncryptorMalformedLogging:
         tampered = bytearray(digested)
         tampered[0] ^= 0x01
 
-        with caplog.at_level(logging.ERROR), pytest.raises(InvalidSignature):
+        with caplog.at_level(logging.ERROR), pytest.raises(InvalidSignature) as exc_info:
             encryptor.verify(packet=bytes(tampered), connhash=connhash)
 
+        assert bytes(tampered).hex() in str(exc_info.value)
         assert any(
             "Malformed packet received: signature verification failed" in rec.getMessage()
             for rec in caplog.records
         )
+        assert any(bytes(tampered).hex() in rec.getMessage() for rec in caplog.records)
         assert any(rec.levelno == logging.ERROR for rec in caplog.records)
 
 

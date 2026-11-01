@@ -27,10 +27,13 @@ class ClassicEncryptor:
         # We leave handling the auth level to the caller and expect the packet to start with the signature.
         if len(connhash) != 8:
             self._logger.error(
-                "Malformed packet: connhash must be exactly 8 bytes (got %d).",
+                "Malformed packet: connhash must be exactly 8 bytes (got %d, packet=%s).",
                 len(connhash),
+                packet.hex(),
             )
-            raise ValueError("Connhash must be 8 bytes long.")
+            raise ValueError(
+                f"Connhash must be 8 bytes long (got {len(connhash)}, packet={packet.hex()})."
+            )
 
         cmacCipher = CMAC(self._aes)
         cmacCipher.update(connhash + packet)
@@ -42,19 +45,23 @@ class ClassicEncryptor:
         # We leave handling the auth level to the caller and expect the packet to start with the signature.
         if len(connhash) != 8:
             self._logger.error(
-                "Malformed packet: connhash must be exactly 8 bytes (got %d).",
+                "Malformed packet: connhash must be exactly 8 bytes (got %d, packet=%s).",
                 len(connhash),
+                packet.hex(),
             )
-            raise ValueError("Connhash must be 8 bytes long.")
+            raise ValueError(
+                f"Connhash must be 8 bytes long (got {len(connhash)}, packet={packet.hex()})."
+            )
 
         if len(packet) < self._sig_len:
             self._logger.error(
-                "Malformed packet received: length %d is shorter than expected signature length %d.",
+                "Malformed packet received (length %d is shorter than signature length %d, packet=%s).",
                 len(packet),
                 self._sig_len,
+                packet.hex(),
             )
             raise ValueError(
-                f"Packet length ({len(packet)}) is shorter than signature length ({self._sig_len})."
+                f"Packet length ({len(packet)}) is shorter than signature length ({self._sig_len}): {packet.hex()}"
             )
 
         cmacCipher = CMAC(self._aes)
@@ -63,7 +70,14 @@ class ClassicEncryptor:
         pckMac = packet[: self._sig_len]
 
         if not hmac.compare_digest(computedMac, pckMac):
-            self._logger.error("Malformed packet received: signature verification failed.")
-            raise InvalidSignature("Signature verification failed.")
+            self._logger.error(
+                "Malformed packet received: signature verification failed for packet %s (sig=%s, expected=%s).",
+                packet.hex(),
+                pckMac.hex(),
+                computedMac.hex(),
+            )
+            raise InvalidSignature(
+                f"Signature verification failed for packet {packet.hex()} (sig={pckMac.hex()}, expected={computedMac.hex()})."
+            )
 
         return packet[self._sig_len :]

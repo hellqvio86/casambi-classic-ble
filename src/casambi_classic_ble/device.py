@@ -314,13 +314,18 @@ class CasambiDevice:
             raise
         except asyncio.CancelledError:
             self._is_connected = False
+            if self.client and not self._injected_client:
+                with contextlib.suppress(Exception):
+                    await self.client.disconnect()
+                self.client = None
             raise
         except Exception as err:
             logger.error(f"Failed to connect to {self.address}: {err}")
             self._is_connected = False
-            if self.client:
+            if self.client and not self._injected_client:
                 with contextlib.suppress(Exception):
                     await self.client.disconnect()
+                self.client = None
             raise CasambiConnectionError(f"Failed to connect to {self.address}: {err}") from err
 
     async def authenticate(self, *, password: str) -> None:
@@ -355,10 +360,8 @@ class CasambiDevice:
 
         if self.client:
             try:
-                # Only stop notify if we are connected
-                if getattr(self.client, "is_connected", False):
-                    with contextlib.suppress(Exception):
-                        await self.client.stop_notify(self._status_uuid)
+                with contextlib.suppress(Exception):
+                    await self.client.stop_notify(self._status_uuid)
                 with contextlib.suppress(Exception):
                     await self.client.disconnect()
                 logger.info(f"Disconnected from {self.name}")

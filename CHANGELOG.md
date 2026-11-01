@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.2] - 2026-11-01
+
+### Added
+- **Cancellation-Safe BLE Connection Lifecycle (P1.3):**
+  - Unified connection and callback lifecycle as a cancellation-safe state machine in `_client.py` and `device.py`.
+  - Cancellation during `connect()` cleanly disconnects any partially established `BleakClient`, cancels/awaits the background worker task, drains notification queues, and resets connection state to `ConnectionState.NONE`.
+  - Cancellation during `disconnect()` preserves clean state reset and resource cleanup via `try ... finally`.
+  - Added worker task done observation callback (`_on_callback_task_done`) to immediately surface unexpected exceptions and prevent unhandled task warnings.
+  - Added bounded notification queue (`MAX_CALLBACK_QUEUE_SIZE = 256`) that safely drops oldest frames on queue saturation during notification storms without blocking BLE callbacks.
+  - Isolated exceptions in subscriber disconnect callbacks (`_disconnectedCallback`) so downstream listener errors do not crash or abort Bleak's disconnect processing.
+  - Added guards in `exchange_key` and `_send_internal` raising explicit `ConnectionStateError` if client was disconnected concurrently.
+  - Added automated unit tests covering cancellation during connect/disconnect, burst queue dropping, worker error observation, disconnect callback exception isolation, and disconnected state guards.
+
 ## [0.8.1] - 2026-11-01
 
 ### Fixed

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from enum import IntEnum, unique
 from typing import Final
@@ -35,10 +36,20 @@ class OperationsContext(ABC):
         self._logger = logging.getLogger(__name__)
 
     @abstractmethod
+    def prepare_operation(
+        self, *, op: OpCode, target: Unit | Group | Scene | None, payload: bytes
+    ) -> bytes:
+        pass
+
     def prepareOperation(
         self, op: OpCode, target: Unit | Group | Scene | None, payload: bytes
     ) -> bytes:
-        pass
+        warnings.warn(
+            "prepareOperation is deprecated; use prepare_operation instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.prepare_operation(op=op, target=target, payload=payload)
 
 
 class OperationsContextClassic(OperationsContext):
@@ -46,8 +57,8 @@ class OperationsContextClassic(OperationsContext):
         super().__init__()
         self.lifetime = 200
 
-    def prepareOperation(
-        self, op: OpCode, target: Unit | Group | Scene | None, payload: bytes
+    def prepare_operation(
+        self, *, op: OpCode, target: Unit | Group | Scene | None, payload: bytes
     ) -> bytes:
         if len(payload) > 16:
             raise ValueError("Payload too long")
@@ -64,11 +75,11 @@ class OperationsContextClassic(OperationsContext):
 
         targetId = None
         if isinstance(target, Unit):
-            targetId = target.deviceId
+            targetId = target.device_id
         elif isinstance(target, Group):
-            targetId = target.groudId
+            targetId = target.group_id
         elif isinstance(target, Scene):
-            targetId = target.sceneId
+            targetId = target.scene_id
 
         if targetId is not None:
             packet += targetId.to_bytes(1)

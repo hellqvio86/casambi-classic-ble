@@ -73,7 +73,7 @@ class Casambi:
 
         self._cache = Cache(cache_path=target_cache)
 
-    def _checkNetwork(self) -> None:
+    def _check_network(self) -> None:
         if not self._casaNetwork or not self._casaNetwork._networkRevision:
             raise ConnectionStateError(
                 ConnectionState.AUTHENTICATED,
@@ -81,9 +81,17 @@ class Casambi:
                 "Network information missing.",
             )
 
+    def _checkNetwork(self) -> None:
+        warnings.warn(
+            "_checkNetwork is deprecated; use _check_network instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._check_network()
+
     @property
     def network_name(self) -> str:
-        self._checkNetwork()
+        self._check_network()
         return self._casaNetwork._networkName  # type: ignore
 
     @property
@@ -97,7 +105,7 @@ class Casambi:
 
     @property
     def network_id(self) -> str:
-        self._checkNetwork()
+        self._check_network()
         return self._casaNetwork._id  # type: ignore
 
     @property
@@ -116,7 +124,7 @@ class Casambi:
         :return: A list of all units in the network.
         :raises ConnectionStateError: There is no connection to the network.
         """
-        self._checkNetwork()
+        self._check_network()
         return self._casaNetwork.units  # type: ignore
 
     @property
@@ -126,7 +134,7 @@ class Casambi:
         :return: A list of all groups in the network.
         :raises ConnectionStateError: There is no connection to the network.
         """
-        self._checkNetwork()
+        self._check_network()
         return self._casaNetwork.groups  # type: ignore
 
     @property
@@ -136,7 +144,7 @@ class Casambi:
         :return: A list of all scenes in the network.
         :raises ConnectionStateError: There is no connection to the network.
         """
-        self._checkNetwork()
+        self._check_network()
         return self._casaNetwork.scenes  # type: ignore
 
     @property
@@ -221,7 +229,7 @@ class Casambi:
             target_offline = True
 
         await self._casaNetwork.update(force_offline=target_offline)
-        await self._connectClient(target_addr)
+        await self._connect_client(target_addr)
 
     async def reconnect(
         self,
@@ -250,7 +258,7 @@ class Casambi:
                 stacklevel=2,
             )
 
-        self._checkNetwork()
+        self._check_network()
         async with self._connectionLock:
             if self._casaClient is None:
                 raise ConnectionStateError(
@@ -261,33 +269,46 @@ class Casambi:
             if self.connected:
                 return
             await self._casaClient.disconnect()
-            await self._connectClient(target_addr)
+            await self._connect_client(target_addr)
 
-    async def _connectClient(self, addr_or_device: str | BLEDevice) -> None:
+    async def _connect_client(self, addr_or_device: str | BLEDevice) -> None:
         """Initiate the bluetooth connection."""
         self._casaNetwork = cast(Network, self._casaNetwork)
 
-        if isClassicNetwork(self._casaNetwork.protocolVersion):
+        pv = getattr(self._casaNetwork, "protocol_version", None)
+        if not isinstance(pv, int):
+            pv = getattr(self._casaNetwork, "protocolVersion", 0)
+        net_version = pv if isinstance(pv, int) else 0
+
+        if isClassicNetwork(net_version):
             self._casaClient = CasambiClientClassic(
                 addr_or_device,
-                self._dataCallback,
-                self._disconnectCallback,
+                self._data_callback,
+                self._disconnect_callback,
                 self._casaNetwork,
             )
             self._opContext = OperationsContextClassic()
         else:
             raise UnsupportedProtocolVersion(
-                f"Protocol version {self._casaNetwork.protocolVersion} is not supported. "
+                f"Protocol version {net_version} is not supported. "
                 "This library is strictly for Classic firmware. "
                 "Use upstream casambi-bt for newer firmware."
             )
         try:
             await self._casaClient.connect()
-            await self._casaClient.exchangeKey()
+            await self._casaClient.exchange_key()
             await self._casaClient.authenticate()
         except BaseException:
             await self._casaClient.disconnect()
             raise
+
+    async def _connectClient(self, addr_or_device: str | BLEDevice) -> None:
+        warnings.warn(
+            "_connectClient is deprecated; use _connect_client instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._connect_client(addr_or_device)
 
     async def set_unit_state(
         self,
@@ -820,7 +841,7 @@ class Casambi:
                 DeprecationWarning,
                 stacklevel=2,
             )
-        self._checkNetwork()
+        self._check_network()
         await self._send(target_val, b"\xff\x01\x00\x00\x01", OpCode.SetLevel)
 
     async def turnOn(
@@ -858,7 +879,7 @@ class Casambi:
                 DeprecationWarning,
                 stacklevel=2,
             )
-        self._checkNetwork()
+        self._check_network()
         await self.set_level(target=target_val, level=0)
 
     async def turnOff(
@@ -924,7 +945,7 @@ class Casambi:
 
         self._logger.debug(f"Sending operation {opcode.name} with payload {state.hex()}.")
 
-        opPkt = self._opContext.prepareOperation(opcode, target, state)
+        opPkt = self._opContext.prepare_operation(op=opcode, target=target, payload=state)
 
         try:
             await self._casaClient.send(opPkt)
@@ -936,7 +957,7 @@ class Casambi:
             else:
                 raise err
 
-    def _dataCallback(
+    def _data_callback(
         self, packetType: IncomingPacketType, data: dict[str, Any] | SwitchEvent
     ) -> None:
         self._logger.debug(f"Incoming data callback of type {packetType!s}")
@@ -948,7 +969,7 @@ class Casambi:
 
             found = False
             for u in self._casaNetwork.units:  # type: ignore[union-attr]
-                if u.deviceId == unitData["id"]:
+                if u.device_id == unitData["id"]:
                     found = True
                     u.set_state_from_bytes(value=unitData["state"])
                     u._on = unitData["on"]
@@ -984,6 +1005,16 @@ class Casambi:
                     )
         else:
             self._logger.warning(f"Handler for type {packetType} not implemented!")
+
+    def _dataCallback(
+        self, packetType: IncomingPacketType, data: dict[str, Any] | SwitchEvent
+    ) -> None:
+        warnings.warn(
+            "_dataCallback is deprecated; use _data_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._data_callback(packetType, data)
 
     def register_unit_changed_handler(
         self, *args: Any, handler: Callable[[Unit], None] | None = None
@@ -1205,7 +1236,7 @@ class Casambi:
         )
         await self.invalidate_cache(*args, uuid=uuid)
 
-    def _disconnectCallback(self) -> None:
+    def _disconnect_callback(self) -> None:
         # Mark all units as offline on disconnect.
         for u in self.units:
             u._online = False
@@ -1226,6 +1257,14 @@ class Casambi:
                     f"Exception occurred in disconnectCallback {d}.",
                     exc_info=True,
                 )
+
+    def _disconnectCallback(self) -> None:
+        warnings.warn(
+            "_disconnectCallback is deprecated; use _disconnect_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._disconnect_callback()
 
     async def disconnect(self) -> None:
         """Disconnect from the network."""

@@ -60,13 +60,14 @@ def dummy_unit():
 def mock_casambi(dummy_unit):
     casa = Casambi()
     mock_net = MagicMock(spec=Network)
+    mock_net.protocol_version = 1  # classic
     mock_net.protocolVersion = 1  # classic
     mock_net._networkRevision = 1
     mock_net._networkName = "MyNetwork"
     mock_net._id = "net-id-123"
     mock_net.units = [dummy_unit]
-    mock_net.groups = [Group(g_id=1, name="G1", units=[1])]
-    mock_net.scenes = [Scene(s_id=1, name="S1", units={1: 255})]
+    mock_net.groups = [Group(group_id=1, name="G1", units=[1])]
+    mock_net.scenes = [Scene(scene_id=1, name="S1", units={1: 255})]
     casa._casaNetwork = mock_net
 
     mock_client = AsyncMock()
@@ -215,7 +216,7 @@ async def test_casambi_callbacks_and_data_handling(mock_casambi, dummy_unit):
     mock_casambi.register_disconnect_callback(callback=on_disconnect)
 
     # Data callback: UnitState
-    mock_casambi._dataCallback(
+    mock_casambi._data_callback(
         packetType=IncomingPacketType.UnitState,
         data={"id": dummy_unit.deviceId, "state": b"\x80\x00\x00\x00", "on": True, "online": True},
     )
@@ -232,13 +233,27 @@ async def test_casambi_callbacks_and_data_handling(mock_casambi, dummy_unit):
         flags=0,
         extra_data=b"",
     )
-    mock_casambi._dataCallback(packetType=IncomingPacketType.SwitchEvent, data=sw)
+    mock_casambi._data_callback(packetType=IncomingPacketType.SwitchEvent, data=sw)
     assert len(switch_events) == 1
 
     # Disconnect callback
-    mock_casambi._disconnectCallback()
+    mock_casambi._disconnect_callback()
     assert len(disconnect_events) == 1
     assert dummy_unit.online is False
+
+    # Deprecated callback method aliases emit DeprecationWarning
+    with pytest.deprecated_call():
+        mock_casambi._dataCallback(
+            packetType=IncomingPacketType.UnitState,
+            data={
+                "id": dummy_unit.deviceId,
+                "state": b"\x80\x00\x00\x00",
+                "on": True,
+                "online": True,
+            },
+        )
+    with pytest.deprecated_call():
+        mock_casambi._disconnectCallback()
 
     # Unregister
     mock_casambi.unregister_unit_changed_handler(handler=on_unit_changed)
@@ -282,6 +297,7 @@ async def test_casambi_disconnect_and_cache(mock_casambi, tmp_path):
 async def test_casambi_connect_and_reconnect():
     casa = Casambi()
     mock_net = AsyncMock(spec=Network)
+    mock_net.protocol_version = 1  # classic
     mock_net.protocolVersion = 1  # classic
     mock_net._networkRevision = 1
 
@@ -299,7 +315,7 @@ async def test_casambi_connect_and_reconnect():
         mock_net.log_in.assert_called_once_with(password="pass", force_offline=False)
         mock_net.update.assert_called_once_with(force_offline=False)
         mock_client.connect.assert_called_once()
-        mock_client.exchangeKey.assert_called_once()
+        mock_client.exchange_key.assert_called_once()
         mock_client.authenticate.assert_called_once()
 
         # Reconnect when already connected does nothing
@@ -324,8 +340,12 @@ async def test_casambi_unsupported_protocol_version_raises(dummy_unit):
     casa = Casambi()
     mock_net = MagicMock(spec=Network)
     mock_net._networkRevision = 1
-    mock_net.protocolVersion = 11  # Unsupported version >= 10
+    mock_net.protocol_version = 11  # Unsupported version >= 10
+    mock_net.protocolVersion = 11
     casa._casaNetwork = mock_net
 
     with pytest.raises(UnsupportedProtocolVersion, match="not supported"):
+        await casa._connect_client(addr_or_device="AA:BB:CC:DD:EE:FF")
+
+    with pytest.deprecated_call(), pytest.raises(UnsupportedProtocolVersion, match="not supported"):
         await casa._connectClient(addr_or_device="AA:BB:CC:DD:EE:FF")

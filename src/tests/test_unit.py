@@ -374,8 +374,22 @@ def test_group_and_scene():
             controls=[],
         ),
     )
-    group = Group(groudId=1, name="Kitchen", units=[unit])
-    scene = Scene(sceneId=10, name="Dinner")
-    assert group.groudId == 1
+    group = Group(group_id=1, name="Kitchen", units=[unit])
+    scene = Scene(scene_id=10, name="Dinner")
+    assert group.group_id == 1
     assert len(group.units) == 1
-    assert scene.sceneId == 10
+    assert scene.scene_id == 10
+
+    # Deprecated properties and constructor kwargs emit warnings
+    with pytest.deprecated_call():
+        assert group.groudId == 1
+    with pytest.deprecated_call():
+        assert group.groupId == 1
+    with pytest.deprecated_call():
+        assert scene.sceneId == 10
+    with pytest.deprecated_call():
+        g_legacy = Group(groudId=1, name="Kitchen", units=[unit])
+        assert g_legacy.group_id == 1
+    with pytest.deprecated_call():
+        s_legacy = Scene(sceneId=10, name="Dinner")
+        assert s_legacy.scene_id == 10

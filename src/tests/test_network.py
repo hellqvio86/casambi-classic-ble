@@ -285,12 +285,15 @@ async def test_network_update_and_fetch_unit_info(mock_cache):
     )
 
     await net.load()
-    await net.update(forceOffline=False)
+    await net.update(force_offline=False)
 
-    assert net.protocolVersion == 1
+    assert net.protocol_version == 1
+    with pytest.deprecated_call():
+        assert net.protocolVersion == 1
+
     assert len(net.units) == 1
     assert net.units[0].name == "Ceiling Light"
-    assert net.units[0].deviceId == 1
+    assert net.units[0].device_id == 1
     assert len(net.groups) == 1
     assert net.groups[0].name == "Living Room"
     assert len(net.scenes) == 1
@@ -325,7 +328,7 @@ async def test_legacy_types_pickle_rejected_safely(mock_cache):
     )
 
     with pytest.warns(UserWarning, match="pickle support was removed in v0.6.0 for security"):
-        await net._loadTypeCache()
+        await net._load_type_cache()
 
     assert net._unitTypes == {}
     async with mock_cache as p:
@@ -347,7 +350,7 @@ async def test_legacy_session_pickle_rejected_safely(mock_cache):
     )
 
     with pytest.warns(UserWarning, match="pickle support was removed in v0.6.0 for security"):
-        await net._loadSession()
+        await net._load_session()
 
     assert net._session is None
     async with mock_cache as p:
@@ -390,7 +393,7 @@ async def test_load_type_cache_from_json(mock_cache):
         httpClient=AsyncMock(),
         cache=mock_cache,
     )
-    await net._loadTypeCache()
+    await net._load_type_cache()
 
     loaded_type, _ = net._unitTypes[859]
     assert loaded_type is not None
@@ -410,19 +413,19 @@ async def test_network_json_cache_validation_failures(mock_cache):
     # 1. Invalid session JSON (not a dict)
     async with mock_cache as p:
         await (p / SESSION_CACHE_FILE).write_text('["not a dict"]')
-    await net._loadSession()
+    await net._load_session()
     assert net._session is None
 
     # 2. Session JSON missing required fields
     async with mock_cache as p:
         await (p / SESSION_CACHE_FILE).write_text('{"missing": "fields"}')
-    await net._loadSession()
+    await net._load_session()
     assert net._session is None
 
     # 3. Invalid types JSON (not a dict)
     async with mock_cache as p:
         await (p / TYPES_CACHE_FILE).write_text('["not a dict"]')
-    await net._loadTypeCache()
+    await net._load_type_cache()
     assert net._unitTypes == {}
 
     # 4. Types JSON with invalid controls
@@ -441,7 +444,7 @@ async def test_network_json_cache_validation_failures(mock_cache):
             }
         }
         await (p / TYPES_CACHE_FILE).write_text(json.dumps(bad_types))
-    await net._loadTypeCache()
+    await net._load_type_cache()
     assert net._unitTypes == {}
 
 
@@ -482,8 +485,16 @@ async def test_network_cache_permissions(mock_cache):
         cache=mock_cache,
     )
     net._session = sess
-    await net._saveSesion()
-    await net._saveTypeCache()
+    await net._save_session()
+    await net._save_type_cache()
+
+    # Verify deprecated aliases emit warnings
+    with pytest.deprecated_call():
+        await net._saveSesion()
+    with pytest.deprecated_call():
+        await net._saveSession()
+    with pytest.deprecated_call():
+        await net._saveTypeCache()
 
     async with mock_cache as p:
         if is_posix():

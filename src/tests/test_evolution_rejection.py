@@ -33,13 +33,18 @@ from casambi_classic_ble.exceptions import (
 
 def _make_mock_network(*, version: int = 5) -> MagicMock:
     mock_net = MagicMock(spec=Network)
+    mock_net.protocol_version = version
     mock_net.protocolVersion = version
     mock_keystore = MagicMock(spec=KeyStore)
     mock_key = MagicMock()
     mock_key.key = b"\x01" * 16
+    mock_keystore.get_legacy_key.side_effect = lambda role: (
+        mock_key if role in (CLASSIC_AUTH_LEVEL_VISITOR, CLASSIC_AUTH_LEVEL_MANAGER) else None
+    )
     mock_keystore.getLegacyKey.side_effect = lambda level: (
         mock_key if level in (CLASSIC_AUTH_LEVEL_VISITOR, CLASSIC_AUTH_LEVEL_MANAGER) else None
     )
+    mock_net.keystore = mock_keystore
     mock_net.keyStore = mock_keystore
     return mock_net
 
@@ -169,7 +174,7 @@ class TestRejectionTimingBeforeAuthenticationOrCommands:
         mock_gatt.write_gatt_char = AsyncMock()
 
         with pytest.raises(UnsupportedProtocolVersion):
-            await client.exchangeKey()
+            await client.exchange_key()
 
         # Invariant: Rejection happened before start_notify or any write
         mock_gatt.start_notify.assert_not_called()

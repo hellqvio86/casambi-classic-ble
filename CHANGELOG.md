@@ -17,6 +17,11 @@
   - Added `validate_safe_path` forbidding path traversal characters (`..`, `/`, `\\`, null bytes) and strictly rejecting symlinks for cache files and cache directories.
 - **Safe Unit Type and Network ID Cache Persistence (P1.1):**
   - Migrated `casambi_session.json`, `casambi_types.json`, and `.cachever` to atomic writes with path traversal and symlink validation.
+- **Canonical Snake_Case APIs, Signature Contracts & Legacy Deprecations (P1.2):**
+  - Cleaned internal camelCase calls to canonical snake_case across `CasambiClient`, `CasambiClientClassic`, `OperationsContext`, `OperationsContextClassic`, `Network`, and `Casambi`.
+  - Corrected legacy attribute and method typos (`_address_or_devive` -> `_address_or_device`, `groudId` -> `group_id`, `_saveSesion` -> `_save_session`).
+  - Added canonical snake_case properties with keyword-only signatures and isolated legacy shims emitting `DeprecationWarning` (`Group.group_id`, `Scene.scene_id`, `Unit.device_id`, `Unit.type_id`, `Unit.firmware_version`, `Unit.unit_type`, `Unit.is_classic`, `Network.protocol_version`, `Network.keystore`, `CasambiClient.exchange_key`, `OperationsContext.prepare_operation`).
+  - Added comprehensive automated signature contract and deprecation tests in `test_api_compatibility.py`.
 
 ## [0.7.0] - 2026-11-01
 

@@ -34,9 +34,11 @@ from casambi_classic_ble.exceptions import (
 @pytest.fixture
 def mock_network():
     net = MagicMock(spec=Network)
-    net.protocolVersion = 5  # Classic minimum supported version is 5
+    net.protocol_version = 5  # Classic minimum supported version is 5
+    net.protocolVersion = 5
     key_obj = MagicMock()
     key_obj.key = b"\x01" * 16
+    net.keystore.get_legacy_key.return_value = key_obj
     net.keyStore.getLegacyKey.return_value = key_obj
     return net
 
@@ -48,7 +50,7 @@ def mock_classic_client(mock_network):
     client = CasambiClientClassic(
         address_or_device="AA:BB:CC:DD:EE:FF",
         dataCallback=data_cb,
-        disonnectedCallback=disconnect_cb,
+        disconnected_callback=disconnect_cb,
         network=mock_network,
     )
     mock_gatt = AsyncMock()
@@ -62,22 +64,24 @@ def test_protocol_version_checks(mock_network):
     disconnect_cb = MagicMock()
 
     # Classic version too low
+    mock_network.protocol_version = MIN_SUPPORTED_CLASSIC_VERSION - 1
     mock_network.protocolVersion = MIN_SUPPORTED_CLASSIC_VERSION - 1
     with pytest.raises(UnsupportedProtocolVersion):
         CasambiClientClassic(
             address_or_device="AA:BB:CC:DD:EE:FF",
             dataCallback=data_cb,
-            disonnectedCallback=disconnect_cb,
+            disconnected_callback=disconnect_cb,
             network=mock_network,
         )
 
     # Unsupported version (>= 10)
+    mock_network.protocol_version = FIRST_UNSUPPORTED_PROTOCOL_VERSION
     mock_network.protocolVersion = FIRST_UNSUPPORTED_PROTOCOL_VERSION
     with pytest.raises(UnsupportedProtocolVersion):
         CasambiClientClassic(
             address_or_device="AA:BB:CC:DD:EE:FF",
             dataCallback=data_cb,
-            disonnectedCallback=disconnect_cb,
+            disconnected_callback=disconnect_cb,
             network=mock_network,
         )
 
@@ -85,6 +89,9 @@ def test_protocol_version_checks(mock_network):
 def test_client_state_checks(mock_classic_client):
     mock_classic_client._connectionState = ConnectionState.NONE
     with pytest.raises(ConnectionStateError):
+        mock_classic_client._check_state(ConnectionState.AUTHENTICATED)
+
+    with pytest.deprecated_call(), pytest.raises(ConnectionStateError):
         mock_classic_client._checkState(ConnectionState.AUTHENTICATED)
 
 
@@ -101,17 +108,17 @@ def test_callback_multiplexer(mock_classic_client):
     # In CONNECTED state -> exchNotifyCallback raises ProtocolError
     mock_classic_client._connectionState = ConnectionState.CONNECTED
     with pytest.raises(ProtocolError):
-        mock_classic_client._callbackMulitplexer(handle, bytearray([0x01]))
+        mock_classic_client._callback_multiplexer(handle, bytearray([0x01]))
 
     # In KEY_EXCHANGED state -> authNotifyCallback raises ProtocolError
     mock_classic_client._connectionState = ConnectionState.KEY_EXCHANGED
     with pytest.raises(ProtocolError):
-        mock_classic_client._callbackMulitplexer(handle, bytearray([0x01]))
+        mock_classic_client._callback_multiplexer(handle, bytearray([0x01]))
 
-    # In AUTHENTICATED state -> calls establishedNotifyCallback
+    # In AUTHENTICATED state -> calls established_notify_callback
     mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
-    with patch.object(mock_classic_client, "_establishedNotifyCallback") as mock_est:
-        mock_classic_client._callbackMulitplexer(handle, bytearray([0x01]))
+    with patch.object(mock_classic_client, "_established_notify_callback") as mock_est:
+        mock_classic_client._callback_multiplexer(handle, bytearray([0x01]))
         mock_est.assert_called_once()
         assert mock_classic_client._inPacketCount == 1
 
@@ -125,12 +132,17 @@ async def test_classic_exchange_key(mock_classic_client):
     resp = bytes.fromhex("0102030405060708") + bytes([1, 0, 23, 5, 0])
     mock_classic_client._gattClient.read_gatt_char.return_value = resp
 
-    await mock_classic_client.exchangeKey()
+    await mock_classic_client.exchange_key()
     assert mock_classic_client._connectionState == ConnectionState.KEY_EXCHANGED
     assert mock_classic_client._connhash == bytes.fromhex("0102030405060708")
     assert mock_classic_client._unit == 1
     assert mock_classic_client._mtu == 23
     mock_classic_client._gattClient.start_notify.assert_called_once()
+
+    # Deprecated alias emits DeprecationWarning
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    with pytest.deprecated_call():
+        await mock_classic_client.exchangeKey()
 
 
 @pytest.mark.asyncio
@@ -146,19 +158,23 @@ async def test_classic_authenticate(mock_classic_client):
 
 def test_classic_established_notify_callback(mock_classic_client):
     # Skip markers 0x00, 0xFF, 0xF0
-    mock_classic_client._establishedNotifyCallback(MagicMock(), bytes([0x00]))
-    mock_classic_client._establishedNotifyCallback(MagicMock(), bytes([0xFF]))
-    mock_classic_client._establishedNotifyCallback(MagicMock(), bytes([0xF0]))
+    mock_classic_client._established_notify_callback(MagicMock(), bytes([0x00]))
+    mock_classic_client._established_notify_callback(MagicMock(), bytes([0xFF]))
+    mock_classic_client._established_notify_callback(MagicMock(), bytes([0xF0]))
     assert mock_classic_client._dataCallback.call_count == 0
 
     # Valid unit state packet:
     # Unit 5, flags: stateLen=2, online=0x80 -> 0x82, state: 0xAA, 0xBB
     packet = bytes([5, 0x82, 0xAA, 0xBB])
-    mock_classic_client._establishedNotifyCallback(MagicMock(), packet)
+    mock_classic_client._established_notify_callback(MagicMock(), packet)
     mock_classic_client._dataCallback.assert_called_once_with(
         IncomingPacketType.UnitState,
         {"id": 5, "online": True, "on": True, "state": bytes([0xAA, 0xBB])},
     )
+
+    # Deprecated alias emits DeprecationWarning
+    with pytest.deprecated_call():
+        mock_classic_client._establishedNotifyCallback(MagicMock(), bytes([0x00]))
 
 
 @pytest.mark.asyncio
@@ -303,10 +319,10 @@ async def test_process_callbacks_cancellation_and_casambi_connect_cancel(mock_ne
 
     with (
         patch.object(CasambiClientClassic, "connect", new=AsyncMock()),
-        patch.object(CasambiClientClassic, "exchangeKey", side_effect=slow_exchange_key),
+        patch.object(CasambiClientClassic, "exchange_key", side_effect=slow_exchange_key),
         caplog.at_level(logging.INFO),
     ):
-        connect_task = asyncio.create_task(casambi._connectClient("AA:BB:CC:DD:EE:FF"))
+        connect_task = asyncio.create_task(casambi._connect_client("AA:BB:CC:DD:EE:FF"))
         await asyncio.sleep(0.02)
         connect_task.cancel()
 
@@ -332,7 +348,7 @@ def test_classic_established_notify_truncated_frames_do_not_raise(
 ):
     """T-009: Verify truncated frames never raise IndexError, log ERROR containing packet, and do not invoke dataCallback."""
     with caplog.at_level(logging.ERROR):
-        mock_classic_client._establishedNotifyCallback(MagicMock(), malformed_frame)
+        mock_classic_client._established_notify_callback(MagicMock(), malformed_frame)
     mock_classic_client._dataCallback.assert_not_called()
     assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
     if malformed_frame:
@@ -344,7 +360,7 @@ def test_classic_established_notify_multi_unit_with_extras(mock_classic_client):
     # Unit 1: stateLen=2, extra1=True (0x20), online=True (0x80) -> flags=0xA2, extra1=0x10, state=0xAA,0xBB
     # Unit 2: stateLen=1, extra2=True (0x40), online=False -> flags=0x41, extra2=0x20, state=0xCC
     frame = bytes([1, 0xA2, 0x10, 0xAA, 0xBB, 2, 0x41, 0x20, 0xCC])
-    mock_classic_client._establishedNotifyCallback(MagicMock(), frame)
+    mock_classic_client._established_notify_callback(MagicMock(), frame)
 
     assert mock_classic_client._dataCallback.call_count == 2
     mock_classic_client._dataCallback.assert_any_call(
@@ -367,7 +383,7 @@ async def test_classic_exchange_key_parses_device_info(mock_classic_client):
     mock_classic_client._gattClient.read_gatt_char = AsyncMock(return_value=resp)
     mock_classic_client._gattClient.start_notify = AsyncMock()
 
-    await mock_classic_client.exchangeKey()
+    await mock_classic_client.exchange_key()
 
     assert mock_classic_client._connhash == connhash
     assert mock_classic_client._unit == 1
@@ -390,7 +406,7 @@ async def test_classic_exchange_key_transient_error_retry(mock_classic_client):
     )
     mock_classic_client._gattClient.start_notify = AsyncMock()
 
-    await mock_classic_client.exchangeKey(retries=2)
+    await mock_classic_client.exchange_key(retries=2)
     assert mock_classic_client._connectionState == ConnectionState.KEY_EXCHANGED
 
     # Exceeding retries raises BluetoothError
@@ -399,7 +415,7 @@ async def test_classic_exchange_key_transient_error_retry(mock_classic_client):
         side_effect=BleakError("Device busy")
     )
     with pytest.raises(BluetoothError, match="Failed to initiate GATT read"):
-        await mock_classic_client.exchangeKey(retries=1)
+        await mock_classic_client.exchange_key(retries=1)
 
 
 @pytest.mark.asyncio
@@ -423,7 +439,7 @@ async def test_classic_send_internal_manager_vs_visitor(mock_classic_client):
     mock_classic_client._outPacketCount = 1
 
     # 1. Manager encryptor present -> prefix 0x03, 16-byte CMAC digest
-    await mock_classic_client._sendInternal(b"\xaa\xbb")
+    await mock_classic_client._send_internal(b"\xaa\xbb")
     written_data = mock_classic_client._gattClient.write_gatt_char.call_args[0][1]
     assert written_data[0] == 0x03
     # 1B prefix + 2B seq + 2B payload + 16B CMAC = 21 bytes
@@ -432,7 +448,7 @@ async def test_classic_send_internal_manager_vs_visitor(mock_classic_client):
     # 2. Visitor encryptor only -> prefix 0x02, 4-byte CMAC digest
     mock_classic_client._managerEncryptor = None
     mock_classic_client._gattClient.write_gatt_char.reset_mock()
-    await mock_classic_client._sendInternal(b"\xaa\xbb")
+    await mock_classic_client._send_internal(b"\xaa\xbb")
     written_data = mock_classic_client._gattClient.write_gatt_char.call_args[0][1]
     assert written_data[0] == 0x02
     # 1B prefix + 2B seq + 2B payload + 4B CMAC = 9 bytes
@@ -451,7 +467,7 @@ async def test_classic_send_internal_disconnected_raises_connection_state_error(
     )
 
     with pytest.raises(ConnectionStateError):
-        await mock_classic_client._sendInternal(b"\x01")
+        await mock_classic_client._send_internal(b"\x01")
 
     assert mock_classic_client._connectionState == ConnectionState.NONE
 
@@ -467,16 +483,16 @@ async def test_classic_send_internal_generic_bleak_error_raises_bluetooth_error(
     )
 
     with pytest.raises(BluetoothError):
-        await mock_classic_client._sendInternal(b"\x01")
+        await mock_classic_client._send_internal(b"\x01")
 
 
 def test_classic_unsupported_callbacks_raise_protocol_error(mock_classic_client):
     """Q-002: Verify handshake notify callbacks reject unexpected packets."""
     with pytest.raises(ProtocolError):
-        mock_classic_client._exchNotifyCallback(MagicMock(), b"\x01")
+        mock_classic_client._exch_notify_callback(MagicMock(), b"\x01")
 
     with pytest.raises(ProtocolError):
-        mock_classic_client._authNotifyCallback(MagicMock(), b"\x01")
+        mock_classic_client._auth_notify_callback(MagicMock(), b"\x01")
 
 
 @pytest.mark.asyncio
@@ -509,7 +525,7 @@ async def test_classic_client_connect_success_and_callback_loop(mock_network):
         # Queue a callback and verify the loop processes it
         client._connectionState = ConnectionState.AUTHENTICATED
         frame = bytes([1, 0x81, 0xAA])
-        client._queueCallback(MagicMock(), bytearray(frame))
+        client._queue_callback(MagicMock(), bytearray(frame))
         await asyncio.sleep(0.02)
         data_cb.assert_called_once()
 
@@ -540,7 +556,7 @@ async def test_classic_exchange_key_version_mismatch_and_notify_failure(mock_cla
     )
 
     with pytest.raises(BluetoothError, match="Failed to initiate GATT notify"):
-        await mock_classic_client.exchangeKey()
+        await mock_classic_client.exchange_key()
 
 
 def test_classic_constructor_validations(mock_network):
@@ -565,7 +581,9 @@ def test_classic_constructor_validations(mock_network):
 
     # Missing visitor key
     bad_net = MagicMock(spec=Network)
+    bad_net.protocol_version = 5
     bad_net.protocolVersion = 5
+    bad_net.keystore.get_legacy_key.return_value = None
     bad_net.keyStore.getLegacyKey.return_value = None
     with pytest.raises(ProtocolError, match="Can't continue without visitor key"):
         CasambiClientClassic(
@@ -601,7 +619,10 @@ async def test_disconnect_allows_eager_reconnect(mock_classic_client):
     from casambi_classic_ble import Casambi
 
     casa = Casambi.__new__(Casambi)
-    casa._casaNetwork = MagicMock()
+    casa._casaNetwork = MagicMock(spec=Network)
+    casa._casaNetwork.protocol_version = 5
+    casa._casaNetwork.protocolVersion = 5
+    casa._casaNetwork._networkRevision = 1
     casa._casaClient = mock_classic_client
     casa._connectionLock = asyncio.Lock()
     mock_classic_client.disconnect = AsyncMock()
@@ -609,7 +630,7 @@ async def test_disconnect_allows_eager_reconnect(mock_classic_client):
     async def fake_connect(address):
         mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
 
-    casa._connectClient = AsyncMock(side_effect=fake_connect)
+    casa._connect_client = AsyncMock(side_effect=fake_connect)
     tasks = []
 
     def disconnected():
@@ -628,7 +649,7 @@ async def test_disconnect_allows_eager_reconnect(mock_classic_client):
     mock_classic_client._on_disconnect(client=MagicMock())
 
     await asyncio.gather(*tasks)
-    casa._connectClient.assert_awaited_once_with("AA:BB:CC:DD:EE:FF")
+    casa._connect_client.assert_awaited_once_with("AA:BB:CC:DD:EE:FF")
     assert casa.connected
 
 

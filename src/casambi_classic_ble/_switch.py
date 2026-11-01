@@ -85,8 +85,17 @@ class SwitchEventDecoder:
         increments its sequence counter).  The time window guards against the edge
         case where the same origin reappears after a very long gap.
         """
+        now = monotonic()
+        expired_keys = [
+            key
+            for key, seen_ts in self._seen_origins.items()
+            if (now - seen_ts) >= _DEDUP_WINDOW_SECONDS
+        ]
+        for key in expired_keys:
+            del self._seen_origins[key]
+
         ts = self._seen_origins.get((unit_id, button_index, origin))
-        return ts is not None and (monotonic() - ts) < _DEDUP_WINDOW_SECONDS
+        return ts is not None and (now - ts) < _DEDUP_WINDOW_SECONDS
 
     def decode(self, data: bytes, packet_seq: int) -> list[SwitchEvent]:
         """Parse decrypted type-7 packet payload and return deduplicated switch events."""

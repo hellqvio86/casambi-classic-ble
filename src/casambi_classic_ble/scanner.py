@@ -5,7 +5,7 @@ import platform
 
 from bleak import BleakScanner
 
-from ._adv import _internal_address
+from ._adv import CASAMBI_MANUFACTURER_ID, parse_advertisement
 from .constants import CasambiUUIDs
 from .device import CasambiDevice
 from .utils import mask_mac
@@ -49,31 +49,31 @@ class CasambiScanner:
             elif (
                 adv_data.manufacturer_data
                 and isinstance(adv_data.manufacturer_data, dict)
-                and 963 in adv_data.manufacturer_data
+                and CASAMBI_MANUFACTURER_ID in adv_data.manufacturer_data
             ):
                 is_casambi = True
 
             if is_casambi:
                 mfr_data = (
-                    adv_data.manufacturer_data.get(963)
+                    adv_data.manufacturer_data.get(CASAMBI_MANUFACTURER_ID)
                     if adv_data.manufacturer_data and isinstance(adv_data.manufacturer_data, dict)
                     else None
                 )
-                state_info = ""
-                if mfr_data and hasattr(mfr_data, "__len__") and len(mfr_data) >= 8:
-                    # Parse Passive State using _internal_address helper
-                    # Classic nodes broadcast MAC in reversed byte order (Quirk #1)
-                    _, rev_address = _internal_address(mfr_data=mfr_data)
-                    dim_level_byte = mfr_data[7]
-                    is_on = mfr_data[6] & 0x01
-                    pct = round((dim_level_byte / 255.0) * 100)
-                    state_info = f" | State: {'ON' if is_on else 'OFF'} ({pct}%)"
+                parsed = (
+                    parse_advertisement(mfr_data=mfr_data, company_id=CASAMBI_MANUFACTURER_ID)
+                    if isinstance(mfr_data, (bytes, bytearray))
+                    else None
+                )
+                if parsed is not None:
+                    state_info = (
+                        f" | State: {'ON' if parsed.is_on else 'OFF'} ({parsed.level_percent}%)"
+                    )
                     is_debug = logger.isEnabledFor(logging.DEBUG)
                     logger.info(
                         "Discovered: %s (%s) | Internal: %s%s",
                         device.name,
                         mask_mac(device.address, is_debug=is_debug),
-                        mask_mac(rev_address, is_debug=is_debug),
+                        mask_mac(parsed.reversed_mac, is_debug=is_debug),
                         state_info,
                     )
                 else:

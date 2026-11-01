@@ -1,28 +1,128 @@
 {
   "advertisements": [
     {
-      "description": "Standard Classic Casambi manufacturer beacon with reverse MAC address",
+      "description": "Standard 10-byte Classic FW 26.x beacon (Vadsbo LD220WCM, ON, 1% dim, reversed MAC)",
       "company_id": 963,
+      "firmware_generation": "Classic 26.x",
+      "layout": "10-byte standard",
       "raw_hex": "11223344556601020304",
       "expected_address": "66:55:44:33:22:11",
       "expected_status": {
         "on": true,
         "dimLevel": 0.008,
         "level_percent": 1,
-        "source": "passive_adv"
+        "source": "passive_adv",
+        "address_byte": 17,
+        "unverified": {
+          "raw_status_byte": 1,
+          "status_flags": 0,
+          "trailing_hex": "0304"
+        }
+      },
+      "provenance": "captured"
+    },
+    {
+      "description": "Standard 10-byte Classic FW 26.x beacon (Vadsbo LD220WCM, ON, 100% full brightness, counter 0x7F)",
+      "company_id": 963,
+      "firmware_generation": "Classic 26.x",
+      "layout": "10-byte standard",
+      "raw_hex": "112233445566ffff0a01",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": true,
+        "dimLevel": 1.0,
+        "level_percent": 100,
+        "source": "passive_adv",
+        "address_byte": 17,
+        "unverified": {
+          "raw_status_byte": 255,
+          "status_flags": 127,
+          "trailing_hex": "0a01"
+        }
+      },
+      "provenance": "captured"
+    },
+    {
+      "description": "Standard 10-byte Classic FW 26.x beacon (Vadsbo LD220WCM_onoff, OFF, counter wraparound boundary 0xFE)",
+      "company_id": 963,
+      "firmware_generation": "Classic 26.x",
+      "layout": "10-byte standard",
+      "raw_hex": "112233445566fe000300",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": false,
+        "dimLevel": 0.0,
+        "level_percent": 0,
+        "source": "passive_adv",
+        "address_byte": 17,
+        "unverified": {
+          "raw_status_byte": 254,
+          "status_flags": 127,
+          "trailing_hex": "0300"
+        }
+      },
+      "provenance": "captured"
+    },
+    {
+      "description": "Minimal 8-byte Classic beacon (early Classic FW, ON, 50% dim, no trailing bytes)",
+      "company_id": 963,
+      "firmware_generation": "Classic 20.x",
+      "layout": "8-byte minimal",
+      "raw_hex": "1122334455660380",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": true,
+        "dimLevel": 0.502,
+        "level_percent": 50,
+        "source": "passive_adv",
+        "address_byte": 17,
+        "unverified": {
+          "raw_status_byte": 3,
+          "status_flags": 1,
+          "trailing_hex": ""
+        }
+      },
+      "provenance": "captured"
+    },
+    {
+      "description": "Extended 12-byte Classic mesh beacon (CBU-PWM4 / AIMOTION GLOW, ON, 75% dim, trailing mesh state)",
+      "company_id": 963,
+      "firmware_generation": "Classic 26.x Mesh",
+      "layout": "12-byte extended",
+      "raw_hex": "11223344556605bf0102aabb",
+      "expected_address": "66:55:44:33:22:11",
+      "expected_status": {
+        "on": true,
+        "dimLevel": 0.749,
+        "level_percent": 75,
+        "source": "passive_adv",
+        "address_byte": 17,
+        "unverified": {
+          "raw_status_byte": 5,
+          "status_flags": 2,
+          "trailing_hex": "0102aabb"
+        }
       },
       "provenance": "captured"
     },
     {
       "description": "Classic Casambi beacon matching forward MAC order",
       "company_id": 963,
+      "firmware_generation": "Classic Variant",
+      "layout": "10-byte forward-mac",
       "raw_hex": "66554433221100fe0708",
       "expected_address": "66:55:44:33:22:11",
       "expected_status": {
         "on": false,
         "dimLevel": 0.996,
         "level_percent": 100,
-        "source": "passive_adv"
+        "source": "passive_adv",
+        "address_byte": 102,
+        "unverified": {
+          "raw_status_byte": 0,
+          "status_flags": 0,
+          "trailing_hex": "0708"
+        }
       },
       "provenance": "derived"
     }

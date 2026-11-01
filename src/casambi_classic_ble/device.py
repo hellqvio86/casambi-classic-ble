@@ -14,7 +14,12 @@ from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection, get_device
 
-from ._adv import _internal_address, matches_advertisement_address
+from ._adv import (
+    CASAMBI_MANUFACTURER_ID,
+    matches_advertisement_address,
+    normalize_mac_address,
+    parse_advertisement,
+)
 from .constants import CasambiCommands, CasambiUUIDs
 from .exceptions import (
     CasambiCommandError,
@@ -426,51 +431,65 @@ class CasambiDevice:
         *,
         mfr_data: bytes | bytearray,
         ble_device: BLEDevice | None = None,
+        company_id: int = CASAMBI_MANUFACTURER_ID,
     ) -> dict[str, Any] | None:
-        """Update device state from passive advertisement data (ID 963)"""
-        if not isinstance(mfr_data, (bytes, bytearray)) or len(mfr_data) < 8:
+        """Update device state from passive advertisement data (ID 963 / 0x03C3)"""
+        parsed = parse_advertisement(mfr_data=mfr_data, company_id=company_id)
+        if parsed is None:
             return None
 
-        matched = False
-        # 1. Caller passed BLEDevice matching this instance (e.g. from scanner or macOS UUID)
+        norm_self_mac = normalize_mac_address(address=self.address)
+
+        # 1. If caller passed BLEDevice, verify it belongs to this instance.
+        #    An advertisement from a different BLEDevice peripheral must never update
+        #    this instance even if its manufacturer payload bytes happen to match.
+        ble_matched = False
         if ble_device is not None:
+            norm_ble_mac = normalize_mac_address(address=ble_device.address)
             if (
-                self._ble_device is not None and ble_device == self._ble_device
-            ) or ble_device.address.upper() == self.address.upper():
-                matched = True
-
-        # 2. Check cached internal address or target address against beacon MAC bytes
-        if not matched:
-            if self._internal_address and matches_advertisement_address(
-                target_address=self._internal_address, mfr_data=mfr_data
+                (self._ble_device is not None and ble_device == self._ble_device)
+                or ble_device.address.upper() == self.address.upper()
+                or (
+                    norm_ble_mac is not None
+                    and norm_self_mac is not None
+                    and norm_ble_mac == norm_self_mac
+                )
             ):
-                matched = True
-            elif matches_advertisement_address(target_address=self.address, mfr_data=mfr_data):
-                matched = True
+                ble_matched = True
+            else:
+                return None
 
-        if not matched:
+        # 2. Verify manufacturer payload address consistency against cached internal
+        #    address or normalized target address to prevent cross-device collisions.
+        mfr_matched = False
+        matched_mac: str | None = None
+        if self._internal_address:
+            if self._internal_address in (parsed.reversed_mac, parsed.forward_mac):
+                mfr_matched = True
+                matched_mac = self._internal_address
+            else:
+                return None
+        elif norm_self_mac is not None:
+            if norm_self_mac in (parsed.reversed_mac, parsed.forward_mac):
+                mfr_matched = True
+                matched_mac = norm_self_mac
+            else:
+                return None
+        elif ble_matched:
+            # UUID-style address (e.g. macOS CoreBluetooth) on initial discovery:
+            # lock _internal_address to the beacon's hardware MAC (reversed per Quirk #1).
+            mfr_matched = True
+            matched_mac = parsed.reversed_mac
+
+        if not (ble_matched or mfr_matched):
             return None
 
-        # Cache internal address (reversed MAC order per quirk #1)
-        _, rev_mac = _internal_address(mfr_data=mfr_data)
-        self._internal_address = rev_mac
-
-        flags = mfr_data[6]
-        is_on = bool(flags & 0x01)
-        level_byte = mfr_data[7]
-        dim_level = round(level_byte / 255.0, 3)
-
-        status: dict[str, Any] = {
-            "on": is_on,
-            "dimLevel": dim_level,
-            "level_percent": round((level_byte / 255.0) * 100),
-            "source": "passive_adv",
-            "address_byte": int(mfr_data[0]),
-        }
+        self._internal_address = matched_mac or parsed.reversed_mac
+        status = parsed.to_status_dict()
 
         self.last_state = status
         logger.debug(
-            f"Passive Update for {self.name}: {'ON' if is_on else 'OFF'} ({status['level_percent']}%)"
+            f"Passive Update for {self.name}: {'ON' if parsed.is_on else 'OFF'} ({status['level_percent']}%)"
         )
 
         self._dispatch_state(status=status)

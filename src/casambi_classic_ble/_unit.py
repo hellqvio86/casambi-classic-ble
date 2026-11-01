@@ -442,8 +442,10 @@ class UnitState:
 
     @staticmethod
     def int_from_rgb(rgb: tuple[int, int, int], length: int) -> int:
-        if length % 3 != 0:
+        if length <= 0 or length % 3 != 0:
             raise ValueError("Invalid RGB length")
+        if len(rgb) != 3 or any(c < 0 or c > 255 for c in rgb):
+            raise ValueError(f"RGB channels must be 3 integers in range [0, 255], got {rgb}")
         scale = UnitState.RGB_RESOLUTION - (length // 3)
         scaledValue = 0
         for i in range(3):
@@ -520,7 +522,13 @@ class UnitState:
 
     @staticmethod
     def payload_from_temperature(temperature: int) -> bytes:
+        if temperature < 0:
+            raise ValueError(f"Temperature must be non-negative, got {temperature}")
         temp = int(temperature / 50)
+        if temp > 255:
+            raise ValueError(
+                f"Temperature {temperature}K exceeds Classic 1-byte encoding limit (12750K)."
+            )
         return temp.to_bytes(1, byteorder="little", signed=False)
 
 

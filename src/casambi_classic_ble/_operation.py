@@ -66,11 +66,17 @@ class OperationsContextClassic(OperationsContext):
         if op not in _classicOpcodeMap:
             raise ValueError(f"OpCode {op} is not supported on Classic networks.")
 
+        target_map = _classicOpcodeMap[op]
+        if type(target) not in target_map:
+            raise ValueError(
+                f"Target type {type(target).__name__} is not supported for {op.name} on Classic networks."
+            )
+
         if self._origin > 255:
             self._origin = 1
 
         # We always send origin, so set 0x40
-        flags = _classicOpcodeMap[op][type(target)] | 0x40
+        flags = target_map[type(target)] | 0x40
         packet = bytearray(3)
 
         targetId = None
@@ -82,6 +88,8 @@ class OperationsContextClassic(OperationsContext):
             targetId = target.scene_id
 
         if targetId is not None:
+            if not (0 <= targetId <= 255):
+                raise ValueError(f"Target ID must be between 0 and 255, got {targetId}.")
             packet += targetId.to_bytes(1)
             flags |= 0x80
 

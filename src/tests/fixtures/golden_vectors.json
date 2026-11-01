@@ -195,6 +195,14 @@
       "frame_hex": "03ffff00",
       "provenance": "derived"
     },
+    "SET_LEVEL_BROADCAST_DIM": {
+      "opcode": 3,
+      "opcode_name": "SET_LEVEL",
+      "level_float": 0.5,
+      "payload_hex": "ffff80",
+      "frame_hex": "03ffff80",
+      "provenance": "derived"
+    },
     "SET_COLOR_TEMP": {
       "opcode": 4,
       "opcode_name": "SET_COLOR_TEMP",
@@ -319,5 +327,151 @@
         "provenance": "derived"
       }
     ]
-  }
+  },
+  "classic_session_operations": [
+    {
+      "name": "SetLevel_Broadcast",
+      "opcode_name": "SetLevel",
+      "target_type": "None",
+      "target_id": null,
+      "payload_hex": "ff",
+      "expected_frame_hex": "f44401c8ff",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetLevel_Unit",
+      "opcode_name": "SetLevel",
+      "target_type": "Unit",
+      "target_id": 5,
+      "payload_hex": "80",
+      "expected_frame_hex": "f5c70105c880",
+      "provenance": "captured"
+    },
+    {
+      "name": "SetLevel_Group",
+      "opcode_name": "SetLevel",
+      "target_type": "Group",
+      "target_id": 10,
+      "payload_hex": "40",
+      "expected_frame_hex": "f5da010ac840",
+      "provenance": "captured"
+    },
+    {
+      "name": "SetLevel_Scene",
+      "opcode_name": "SetLevel",
+      "target_type": "Scene",
+      "target_id": 12,
+      "payload_hex": "ff",
+      "expected_frame_hex": "f5c1010cc8ff",
+      "provenance": "captured"
+    },
+    {
+      "name": "SetTemperature_Broadcast",
+      "opcode_name": "SetTemperature",
+      "target_type": "None",
+      "target_id": null,
+      "payload_hex": "36",
+      "expected_frame_hex": "f44501c836",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetTemperature_Unit",
+      "opcode_name": "SetTemperature",
+      "target_type": "Unit",
+      "target_id": 5,
+      "payload_hex": "36",
+      "expected_frame_hex": "f5c80105c836",
+      "provenance": "captured"
+    },
+    {
+      "name": "SetTemperature_Group",
+      "opcode_name": "SetTemperature",
+      "target_type": "Group",
+      "target_id": 10,
+      "payload_hex": "36",
+      "expected_frame_hex": "f5db010ac836",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetColor_Broadcast",
+      "opcode_name": "SetColor",
+      "target_type": "None",
+      "target_id": null,
+      "payload_hex": "ff8000",
+      "expected_frame_hex": "f64601c8ff8000",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetColor_Unit",
+      "opcode_name": "SetColor",
+      "target_type": "Unit",
+      "target_id": 5,
+      "payload_hex": "ff8000",
+      "expected_frame_hex": "f7c90105c8ff8000",
+      "provenance": "captured"
+    },
+    {
+      "name": "SetColor_Group",
+      "opcode_name": "SetColor",
+      "target_type": "Group",
+      "target_id": 10,
+      "payload_hex": "ff8000",
+      "expected_frame_hex": "f7dc010ac8ff8000",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetVertical_Broadcast",
+      "opcode_name": "SetVertical",
+      "target_type": "None",
+      "target_id": null,
+      "payload_hex": "64",
+      "expected_frame_hex": "f45601c864",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetVertical_Unit",
+      "opcode_name": "SetVertical",
+      "target_type": "Unit",
+      "target_id": 5,
+      "payload_hex": "64",
+      "expected_frame_hex": "f5d80105c864",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetVertical_Group",
+      "opcode_name": "SetVertical",
+      "target_type": "Group",
+      "target_id": 10,
+      "payload_hex": "64",
+      "expected_frame_hex": "f5dd010ac864",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetWhite_Broadcast",
+      "opcode_name": "SetWhite",
+      "target_type": "None",
+      "target_id": null,
+      "payload_hex": "c8",
+      "expected_frame_hex": "f45701c8c8",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetWhite_Unit",
+      "opcode_name": "SetWhite",
+      "target_type": "Unit",
+      "target_id": 5,
+      "payload_hex": "c8",
+      "expected_frame_hex": "f5d90105c8c8",
+      "provenance": "derived"
+    },
+    {
+      "name": "SetWhite_Group",
+      "opcode_name": "SetWhite",
+      "target_type": "Group",
+      "target_id": 10,
+      "payload_hex": "c8",
+      "expected_frame_hex": "f5de010ac8c8",
+      "provenance": "derived"
+    }
+  ]
 }

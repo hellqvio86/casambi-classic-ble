@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from casambi_classic_ble._operation import (
@@ -92,3 +94,65 @@ def test_classic_prepare_operation_unsupported_opcode():
     ctx = OperationsContextClassic()
     with pytest.raises(ValueError, match="not supported on Classic networks"):
         ctx.prepare_operation(op=OpCode.SetSlider, target=None, payload=b"\x01")
+
+
+@pytest.mark.parametrize(
+    "unsupported_op",
+    [
+        OpCode.SetTemperature,
+        OpCode.SetColor,
+        OpCode.SetVertical,
+        OpCode.SetWhite,
+    ],
+)
+def test_classic_prepare_operation_unsupported_target_type_for_opcode(
+    unsupported_op: OpCode,
+) -> None:
+    """P1.7: Scene target is only supported for SetLevel; other opcodes fail with ValueError."""
+    ctx = OperationsContextClassic()
+    scene = create_mock_scene(scene_id=1)
+    with pytest.raises(ValueError, match="Target type Scene is not supported"):
+        ctx.prepare_operation(op=unsupported_op, target=scene, payload=b"\x01")
+
+
+@pytest.mark.parametrize("invalid_id", [-1, 256, 65535])
+def test_classic_prepare_operation_invalid_target_id_bounds(invalid_id: int) -> None:
+    """P1.7: Out-of-range unit/group/scene IDs (< 0 or > 255) fail before packing."""
+    ctx = OperationsContextClassic()
+    bad_unit = create_mock_unit(unit_id=invalid_id)
+    with pytest.raises(ValueError, match="Target ID must be between 0 and 255"):
+        ctx.prepare_operation(op=OpCode.SetLevel, target=bad_unit, payload=b"\x80")
+
+    bad_group = create_mock_group(group_id=invalid_id)
+    with pytest.raises(ValueError, match="Target ID must be between 0 and 255"):
+        ctx.prepare_operation(op=OpCode.SetLevel, target=bad_group, payload=b"\x80")
+
+    bad_scene = create_mock_scene(scene_id=invalid_id)
+    with pytest.raises(ValueError, match="Target ID must be between 0 and 255"):
+        ctx.prepare_operation(op=OpCode.SetLevel, target=bad_scene, payload=b"\x80")
+
+
+def test_classic_session_operations_match_golden_vectors(
+    golden_vectors: dict[str, Any],
+) -> None:
+    """P1.7: Verify all Classic session operation combinations against golden vectors."""
+    for vec in golden_vectors["classic_session_operations"]:
+        assert "provenance" in vec
+        ctx = OperationsContextClassic()
+        op = OpCode[vec["opcode_name"]]
+        target_type = vec["target_type"]
+        target: Unit | Group | Scene | None = None
+        if target_type == "None":
+            target = None
+        elif target_type == "Unit":
+            target = create_mock_unit(unit_id=vec["target_id"])
+        elif target_type == "Group":
+            target = create_mock_group(group_id=vec["target_id"])
+        elif target_type == "Scene":
+            target = create_mock_scene(scene_id=vec["target_id"])
+        else:
+            pytest.fail(f"Unknown target_type: {target_type}")
+
+        payload = bytes.fromhex(vec["payload_hex"])
+        frame = ctx.prepare_operation(op=op, target=target, payload=payload)
+        assert frame.hex() == vec["expected_frame_hex"], f"Mismatch for {vec['name']}"

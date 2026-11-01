@@ -329,3 +329,107 @@ class TestProtocolGoldenVectors:
             assert status["on"] == packet["expected_on"]
             assert status["dimLevel"] == packet["expected_dim_level"]
             assert status["level_percent"] == packet["expected_level_percent"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("vector_key", "method_name", "kwargs"),
+        [
+            ("SET_LEVEL_2BYTE_ON", "turn_on", {"unit_id": 1}),
+            ("SET_LEVEL_2BYTE_OFF", "turn_off", {"unit_id": 1}),
+            ("SET_LEVEL_DIM", "set_level", {"unit_id": 1, "level": 0.5}),
+            ("SET_LEVEL_BROADCAST_DIM", "set_level", {"unit_id": None, "level": 0.5}),
+            ("SET_LEVEL_BROADCAST_ON", "turn_on_broadcast", {}),
+            ("SET_LEVEL_BROADCAST_ON", "turn_on", {"unit_id": None}),
+            ("SET_LEVEL_BROADCAST_OFF", "turn_off_broadcast", {}),
+            ("SET_LEVEL_BROADCAST_OFF", "turn_off", {"unit_id": None}),
+            ("TURN_LIGHT_ON_LONG", "turn_on_by_address", {"address": "11:22:33:44:55:66"}),
+            ("TURN_LIGHT_OFF_LONG", "turn_off_by_address", {"address": "11:22:33:44:55:66"}),
+            ("SET_COLOR_TEMP", "set_color_temperature", {"unit_id": 1, "temp_kelvin": 2700}),
+            ("SET_RGB", "set_rgb", {"unit_id": 1, "r": 255, "g": 128, "b": 0}),
+            ("AUTHENTICATE", "authenticate", {"password": "password"}),
+        ],
+    )
+    async def test_parameterized_hardware_compatibility_matrix(
+        self,
+        mock_bleak_client: AsyncMock,
+        golden_vectors: dict[str, Any],
+        vector_key: str,
+        method_name: str,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """P1.7: Parameterized verification of the Hardware Compatibility Matrix."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+
+        written_packets: list[bytes] = []
+
+        async def capture_write(char_uuid: str, data: bytes, *, response: bool = True) -> None:
+            written_packets.append(data)
+
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=capture_write)
+
+        method = getattr(device, method_name)
+        await method(**kwargs)
+
+        expected_vector = golden_vectors["opcodes"][vector_key]
+        assert len(written_packets) == 1
+        assert written_packets[0].hex() == expected_vector["frame_hex"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method_name", "invalid_kwargs"),
+        [
+            ("turn_on", {"unit_id": -1}),
+            ("turn_on", {"unit_id": 256}),
+            ("turn_off", {"unit_id": -1}),
+            ("turn_off", {"unit_id": 256}),
+            ("set_level", {"unit_id": 1, "level": -0.01}),
+            ("set_level", {"unit_id": 1, "level": 1.01}),
+            ("set_level", {"unit_id": -1, "level": 0.5}),
+            ("set_level", {"unit_id": 256, "level": 0.5}),
+            ("set_color_temperature", {"unit_id": 1, "temp_kelvin": 1999}),
+            ("set_color_temperature", {"unit_id": 1, "temp_kelvin": 6501}),
+            ("set_color_temperature", {"unit_id": -1, "temp_kelvin": 2700}),
+            ("set_color_temperature", {"unit_id": 256, "temp_kelvin": 2700}),
+            ("set_rgb", {"unit_id": 1, "r": -1, "g": 0, "b": 0}),
+            ("set_rgb", {"unit_id": 1, "r": 0, "g": 256, "b": 0}),
+            ("set_rgb", {"unit_id": 1, "r": 0, "g": 0, "b": 300}),
+            ("set_rgb", {"unit_id": -1, "r": 0, "g": 0, "b": 0}),
+            ("set_rgb", {"unit_id": 256, "r": 0, "g": 0, "b": 0}),
+            ("request_state", {"unit_id": -1, "settle": 0}),
+            ("request_state", {"unit_id": 256, "settle": 0}),
+            ("turn_on_by_address", {"address": "11:22:33"}),
+            ("turn_off_by_address", {"address": "not_a_mac"}),
+        ],
+    )
+    async def test_pre_send_validation_fails_before_gatt_write(
+        self,
+        mock_bleak_client: AsyncMock,
+        method_name: str,
+        invalid_kwargs: dict[str, Any],
+    ) -> None:
+        """P1.7: Out-of-bounds parameters fail with CasambiDeviceError before sending any bytes."""
+        from casambi_classic_ble.exceptions import CasambiDeviceError
+
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+        mock_bleak_client.write_gatt_char.reset_mock()
+
+        method = getattr(device, method_name)
+        with pytest.raises(CasambiDeviceError):
+            await method(**invalid_kwargs)
+
+        mock_bleak_client.write_gatt_char.assert_not_called()
+
+    def test_unit_state_payload_packing_bounds_validation(self) -> None:
+        """P1.7: UnitState.payload_from_rgb and payload_from_temperature reject out-of-range inputs."""
+        from casambi_classic_ble._unit import UnitState
+
+        with pytest.raises(ValueError, match="RGB channels must be 3 integers"):
+            UnitState.payload_from_rgb((-1, 0, 0))
+        with pytest.raises(ValueError, match="RGB channels must be 3 integers"):
+            UnitState.payload_from_rgb((0, 256, 0))
+        with pytest.raises(ValueError, match="Temperature must be non-negative"):
+            UnitState.payload_from_temperature(-50)
+        with pytest.raises(ValueError, match="exceeds Classic 1-byte encoding limit"):
+            UnitState.payload_from_temperature(13000)

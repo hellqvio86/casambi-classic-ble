@@ -1,5 +1,6 @@
 """Golden-vector tests asserting exact opcode and packet bytes for Classic Casambi protocol."""
 
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -24,12 +25,58 @@ class TestProtocolGoldenVectors:
     """Test suite for validating exact opcode bytes and packet encodings against golden vectors."""
 
     def test_all_constants_opcodes_covered(self, golden_vectors: dict[str, Any]) -> None:
-        """Every opcode in CasambiCommands must be covered by the golden vectors."""
+        """Every opcode in CasambiCommands and every opcode used in device.py must be in golden_vectors."""
         configured_opcodes = {vector["opcode"] for vector in golden_vectors["opcodes"].values()}
         for cmd in CasambiCommands:
             assert cmd.value in configured_opcodes, (
                 f"Opcode {cmd.name} ({cmd.value:#02x}) is missing from golden_vectors"
             )
+
+        # Introspect device.py to find all command values passed to _send_command
+        device_py = Path(__file__).parents[1] / "casambi_classic_ble" / "device.py"
+        tree = ast.parse(device_py.read_text(encoding="utf-8"))
+        used_opcodes: set[int] = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                is_send_command = isinstance(func, ast.Attribute) and func.attr == "_send_command"
+                if is_send_command:
+                    for kw in node.keywords:
+                        if kw.arg == "command":
+                            if isinstance(kw.value, ast.Constant) and isinstance(
+                                kw.value.value, int
+                            ):
+                                used_opcodes.add(kw.value.value)
+                            elif isinstance(kw.value, ast.Attribute):
+                                attr_name = kw.value.attr
+                                if hasattr(CasambiCommands, attr_name):
+                                    used_opcodes.add(getattr(CasambiCommands, attr_name).value)
+
+        assert len(used_opcodes) > 0, "AST scan did not find any _send_command calls in device.py"
+        for opcode_val in used_opcodes:
+            assert opcode_val in configured_opcodes, (
+                f"Opcode {opcode_val:#02x} used by device.py is missing from golden_vectors"
+            )
+
+    def test_all_golden_vectors_have_provenance(self, golden_vectors: dict[str, Any]) -> None:
+        """Every vector entry must declare valid provenance ('captured' or 'derived')."""
+        valid_provenances = {"captured", "derived"}
+
+        for beacon in golden_vectors["advertisements"]:
+            assert "provenance" in beacon, f"Missing provenance in advertisement: {beacon}"
+            assert beacon["provenance"] in valid_provenances
+
+        for packet in golden_vectors["status_packets"]:
+            assert "provenance" in packet, f"Missing provenance in status packet: {packet}"
+            assert packet["provenance"] in valid_provenances
+
+        for name, vector in golden_vectors["opcodes"].items():
+            assert "provenance" in vector, f"Missing provenance in opcode vector '{name}': {vector}"
+            assert vector["provenance"] in valid_provenances
+
+        assert "provenance" in golden_vectors["protected_mesh_xor"]
+        assert golden_vectors["protected_mesh_xor"]["provenance"] in valid_provenances
 
     @pytest.mark.asyncio
     async def test_set_level_encodings_match_golden_vectors(
@@ -215,6 +262,31 @@ class TestProtocolGoldenVectors:
         assert (
             written_packets[-1].hex() == golden_vectors["opcodes"]["GET_NETWORK_INFO"]["frame_hex"]
         )
+
+    @pytest.mark.asyncio
+    async def test_turn_on_off_by_address_match_golden_vectors(
+        self,
+        mock_bleak_client: AsyncMock,
+        golden_vectors: dict[str, Any],
+    ) -> None:
+        """Verify turn_on_by_address (0x81) and turn_off_by_address (0x82) match golden vectors."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
+        device.is_connected = True
+
+        written_packets: list[bytes] = []
+
+        async def capture_write(char_uuid: str, data: bytes, *, response: bool = True) -> None:
+            written_packets.append(data)
+
+        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=capture_write)
+
+        on_long_vector = golden_vectors["opcodes"]["TURN_LIGHT_ON_LONG"]
+        await device.turn_on_by_address(address=on_long_vector["address"])
+        assert written_packets[-1].hex() == on_long_vector["frame_hex"]
+
+        off_long_vector = golden_vectors["opcodes"]["TURN_LIGHT_OFF_LONG"]
+        await device.turn_off_by_address(address=off_long_vector["address"])
+        assert written_packets[-1].hex() == off_long_vector["frame_hex"]
 
     def test_advertisement_beacons_match_golden_vectors(
         self,

@@ -38,22 +38,48 @@ Packets written to the Control Characteristic begin with a 1-byte command opcode
 
 ### Supported Opcodes (`CasambiCommands`)
 
-| Opcode | Name | Description | Payload Format |
-|---|---|---|---|
-| `0x01` | `TURN_LIGHT_ON` | Direct power turn on | `[Unit ID (1B)]` |
-| `0x02` | `TURN_LIGHT_OFF` | Direct power turn off | `[Unit ID (1B)]` |
-| `0x03` | `SET_LEVEL` | Set brightness level / on / off | `[Unit ID (1B)] [Level (1B)]` or `[Unit ID (2B LE)] [Level (1B)]` |
-| `0x04` | `SET_COLOR_TEMP` | Set Color Temperature (Kelvin) | `[Unit ID (1B)] [Temp Kelvin (2B LE)]` |
-| `0x05` | `SET_RGB` | Set RGB channel levels | `[Unit ID (1B)] [R (1B)] [G (1B)] [B (1B)]` |
-| `0x07` | `AUTHENTICATE` | Authenticate with network key | `[MD5 Password Hash (16B)]` |
-| `0x0F` | `GET_UNIT_STATE` | Query specific unit state | `[Unit ID (1B)]` |
-| `0x10` | `GET_DEVICE_INFO` | Query device hardware info | *(Empty)* |
-| `0x11` | `GET_NETWORK_INFO` | Query network configuration | *(Empty)* |
-| `0x14` | `GET_STATE` | Global query for unit states | `[Unit ID (1B)]` |
+| Opcode | Name | Description | Payload Format | Status |
+|---|---|---|---|---|
+| `0x01` | `TURN_LIGHT_ON` | Direct power turn on | `[Unit ID (1B)]` | Observed, legacy (unexposed in high-level API) |
+| `0x02` | `TURN_LIGHT_OFF` | Direct power turn off | `[Unit ID (1B)]` | Observed, legacy (unexposed in high-level API) |
+| `0x03` | `SET_LEVEL` | Set brightness level / on / off | `[Unit ID (1B)] [Level (1B)]` or `[Unit ID (2B LE)] [Level (1B)]` | Standard power and dimming control |
+| `0x04` | `SET_COLOR_TEMP` | Set Color Temperature (Kelvin) | `[Unit ID (1B)] [Temp Kelvin (2B LE)]` | Exposed via `set_color_temperature()` |
+| `0x05` | `SET_RGB` | Set RGB channel levels | `[Unit ID (1B)] [R (1B)] [G (1B)] [B (1B)]` | Exposed via `set_rgb()` |
+| `0x07` | `AUTHENTICATE` | Authenticate with network key | `[MD5 Password Hash (16B)]` | Exposed via `authenticate()` |
+| `0x0F` | `GET_UNIT_STATE` | Query specific unit state | `[Unit ID (1B)]` | Used by `request_state()` |
+| `0x10` | `GET_DEVICE_INFO` | Query device hardware info | *(Empty)* | Observed, not exposed (GATT DIS preferred) |
+| `0x11` | `GET_NETWORK_INFO` | Query network configuration | *(Empty)* | Observed, not exposed |
+| `0x14` | `GET_STATE` | Global query for unit states | `[Unit ID (1B)]` | Used by `request_state()` |
+| `0x81` | `TURN_LIGHT_ON_LONG` | Direct power on by 6-byte address | `[Address (6B)]` | Exposed via `turn_on_by_address()` |
+| `0x82` | `TURN_LIGHT_OFF_LONG` | Direct power off by 6-byte address | `[Address (6B)]` | Exposed via `turn_off_by_address()` |
 
 ---
 
-## 3. Advertisement Beacon Format
+## 3. Command Variant & Hardware Compatibility Matrix
+
+Classic Casambi firmware supports multiple command payload variants depending on device firmware generation and channel topology. The table below details the exact payload structure, verified models, and capture provenance:
+
+| Command | Opcode | Payload Variant | Payload Layout | Verified Hardware Models | Evidence | Notes |
+|---|---|---|---|---|---|---|
+| `turn_on` | `0x03` (`SET_LEVEL`) | 2-byte unit ID, level `0xFF` | `[Unit (2B LE)] [0xFF]` | Vadsbo LD220WCM, LD220WCM_onoff | Captured | Required by Classic firmware 26.x for reliable power toggle |
+| `turn_off` | `0x03` (`SET_LEVEL`) | 2-byte unit ID, level `0x00` | `[Unit (2B LE)] [0x00]` | Vadsbo LD220WCM, LD220WCM_onoff | Captured | Required by Classic firmware 26.x for reliable power toggle |
+| `set_level` | `0x03` (`SET_LEVEL`) | 1-byte unit ID, level `0x00..0xFF` | `[Unit (1B)] [Level (1B)]` | Vadsbo LD220WCM, CBU-PWM4 RGBW | Captured | Standard brightness adjustment |
+| `turn_on_broadcast` | `0x03` (`SET_LEVEL`) | Broadcast unit `0xFFFF`, level `0xFF` | `[0xFF 0xFF] [0xFF]` | Vadsbo LD220WCM, LD220WCM_onoff | Derived | Targets all reachable units in mesh |
+| `turn_off_broadcast` | `0x03` (`SET_LEVEL`) | Broadcast unit `0xFFFF`, level `0x00` | `[0xFF 0xFF] [0x00]` | Vadsbo LD220WCM, LD220WCM_onoff | Derived | Targets all reachable units in mesh |
+| `turn_on_by_address` | `0x81` (`TURN_LIGHT_ON_LONG`) | 6-byte target MAC/address | `[MAC Address (6B)]` | Vadsbo LD220WCM | Captured | Direct unicast power on without mesh unit ID |
+| `turn_off_by_address` | `0x82` (`TURN_LIGHT_OFF_LONG`) | 6-byte target MAC/address | `[MAC Address (6B)]` | Vadsbo LD220WCM | Captured | Direct unicast power off without mesh unit ID |
+| `set_color_temperature` | `0x04` (`SET_COLOR_TEMP`) | 1-byte unit ID, 2-byte Kelvin LE | `[Unit (1B)] [Kelvin (2B LE)]` | AIMOTION GLOW | Captured | Tunable white / CCT control |
+| `set_rgb` | `0x05` (`SET_RGB`) | 1-byte unit ID, 3-byte RGB | `[Unit (1B)] [R] [G] [B]` | Casambi CBU-PWM4 RGBW | Captured | 3-channel color control |
+| `authenticate` | `0x07` (`AUTHENTICATE`) | 16-byte MD5 hash | `[MD5 Hash (16B)]` | All Classic Nodes | Captured | Optional password authorization |
+| `request_state` | `0x14` (`GET_STATE`) & `0x0F` (`GET_UNIT_STATE`) | 1-byte unit ID | `[Unit (1B)]` | All Classic Nodes | Captured | Triggers unit status notification response |
+| `TURN_LIGHT_ON` (Legacy) | `0x01` | 1-byte unit ID | `[Unit (1B)]` | Older Classic firmware | Derived | Observed alternate opcode, not used by `turn_on()` |
+| `TURN_LIGHT_OFF` (Legacy) | `0x02` | 1-byte unit ID | `[Unit (1B)]` | Older Classic firmware | Derived | Observed alternate opcode, not used by `turn_off()` |
+| `GET_DEVICE_INFO` | `0x10` | Empty | *(Empty)* | Classic firmware | Derived | Observed GATT control query; standard DIS (0x180A) preferred |
+| `GET_NETWORK_INFO` | `0x11` | Empty | *(Empty)* | Classic firmware | Derived | Observed GATT control query |
+
+---
+
+## 4. Advertisement Beacon Format
 
 Casambi devices broadcast passive BLE manufacturer data using Company Identifier `0x03C3` (decimal `963`):
 
@@ -72,7 +98,7 @@ Casambi devices broadcast passive BLE manufacturer data using Company Identifier
 
 ---
 
-## 4. Signed Session Protocol (`Casambi` Stack)
+## 5. Signed Session Protocol (`Casambi` Stack)
 
 When using the full network session controller (`Casambi` and `CasambiClientClassic`), communication uses challenge-response authentication and CMAC-signed frames over GATT:
 
@@ -96,7 +122,7 @@ Packets sent to the GATT Control characteristic in signed session mode follow th
 
 ---
 
-## 5. Capturing Protocol Frames with BTSnoop / Wireshark
+## 6. Capturing Protocol Frames with BTSnoop / Wireshark
 
 To capture and inspect live frames for new devices or test fixtures:
 

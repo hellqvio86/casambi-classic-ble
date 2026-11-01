@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.1] - 2026-11-01
+
+### Added
+- **Opcode & Address Command Constants (T-016):**
+  - Added `TURN_LIGHT_ON_LONG = 0x81` and `TURN_LIGHT_OFF_LONG = 0x82` to `CasambiCommands` enum.
+  - Documented observed vs exposed opcodes (`TURN_LIGHT_ON`, `TURN_LIGHT_OFF`, `GET_DEVICE_INFO`, `GET_NETWORK_INFO`) in `CasambiCommands` docstring and `docs/protocol.md`.
+  - Added golden vectors for `TURN_LIGHT_ON_LONG` and `TURN_LIGHT_OFF_LONG` in `fixtures/golden_vectors.json`.
+  - Added AST introspection test ensuring every command opcode dispatched via `CasambiDevice._send_command` is covered in golden vectors.
+- **Hardware Compatibility Matrix & Vector Provenance (T-017):**
+  - Added Command Variant & Hardware Compatibility Matrix to `docs/protocol.md` detailing 1-byte vs 2-byte unit ID payload layouts, verified models, and capture provenance across verified Classic models.
+  - Added `provenance` field (`"captured"` or `"derived"`) to every entry in `fixtures/golden_vectors.json`.
+  - Added automated test asserting provenance declarations across all protocol fixture entries.
+  - Linked hardware section in `README.md` to the compatibility matrix in `docs/protocol.md`.
+
+### Fixed
+- **Address Parsing & Error Chaining in Direct Commands (T-016):**
+  - Extracted `_parse_address_bytes()` helper in `device.py` validating 6-byte hexadecimal addresses (supporting colon, hyphen, or unseparated hex string formats) and raising `CasambiDeviceError` with chained `from err`.
+  - Replaced raw `except Exception` blocks in `turn_on_by_address` and `turn_off_by_address`.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added

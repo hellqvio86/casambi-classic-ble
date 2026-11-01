@@ -25,6 +25,32 @@ from .exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _parse_address_bytes(*, address: str) -> bytes:
+    """Parse and validate a 6-byte hexadecimal address string into raw bytes.
+
+    Args:
+        address: Bluetooth MAC or internal address string (e.g. 'AA:BB:CC:DD:EE:FF' or 'aabbccddeeff').
+
+    Returns:
+        bytes: 6-byte address as raw bytes.
+
+    Raises:
+        CasambiDeviceError: If the address is invalid hex or does not have exactly 6 bytes.
+    """
+    cleaned = address.replace(":", "").replace("-", "").strip()
+    try:
+        addr_bytes = bytes.fromhex(cleaned)
+    except ValueError as err:
+        raise CasambiDeviceError(f"Invalid address format '{address}': {err}") from err
+
+    if len(addr_bytes) != 6:
+        raise CasambiDeviceError(
+            f"Invalid address length for '{address}': expected 6 bytes, got {len(addr_bytes)}"
+        )
+
+    return addr_bytes
+
+
 class CasambiDevice:
     """Represents a Casambi BLE device"""
 
@@ -518,28 +544,16 @@ class CasambiDevice:
         await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
     async def turn_on_by_address(self, *, address: str) -> None:
-        """Turn on a light unit by its 6-byte address (Internal ID)"""
-        # Command 0x81 (Turn On Long Address). format: [0x81] [6-byte address]
+        """Turn on a light unit by its 6-byte address (Internal ID)."""
         logger.info("Switching Unit directly to state: ON")
-        try:
-            addr_bytes = bytes.fromhex(address.replace(":", ""))
-            if len(addr_bytes) != 6:
-                raise ValueError("Invalid address length")
-        except Exception as err:
-            raise CasambiDeviceError(f"Invalid address '{address}': {err}") from err
-        await self._send_command(command=0x81, payload=addr_bytes)
+        addr_bytes = _parse_address_bytes(address=address)
+        await self._send_command(command=CasambiCommands.TURN_LIGHT_ON_LONG, payload=addr_bytes)
 
     async def turn_off_by_address(self, *, address: str) -> None:
-        """Turn off a light unit by its 6-byte address (Internal ID)"""
-        # Command 0x82 (Turn Off Long Address)
+        """Turn off a light unit by its 6-byte address (Internal ID)."""
         logger.info("Switching Unit directly to state: OFF")
-        try:
-            addr_bytes = bytes.fromhex(address.replace(":", ""))
-            if len(addr_bytes) != 6:
-                raise ValueError("Invalid address length")
-        except Exception as err:
-            raise CasambiDeviceError(f"Invalid address '{address}': {err}") from err
-        await self._send_command(command=0x82, payload=addr_bytes)
+        addr_bytes = _parse_address_bytes(address=address)
+        await self._send_command(command=CasambiCommands.TURN_LIGHT_OFF_LONG, payload=addr_bytes)
 
     async def turn_on_broadcast(self) -> None:
         """Turn on all units in range (Broadcast)"""

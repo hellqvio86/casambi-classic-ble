@@ -15,18 +15,32 @@ from ._constants import (
 
 
 class CasambiCommands(IntEnum):
-    """Casambi command opcodes for classic firmware"""
+    """Casambi command opcodes for classic firmware.
+
+    Notes on observed vs exposed opcodes:
+        - `TURN_LIGHT_ON` (0x01) & `TURN_LIGHT_OFF` (0x02): Observed 1-byte unit ID opcodes
+          in older firmware. High-level methods `turn_on()` and `turn_off()` deliberately
+          use `SET_LEVEL` (0x03) with 2-byte unit IDs (`<HB`) for compatibility with
+          modern Classic firmware (e.g. 26.x).
+        - `GET_DEVICE_INFO` (0x10) & `GET_NETWORK_INFO` (0x11): Observed GATT control
+          query opcodes. Device information is normally retrieved via standard BLE
+          Device Information Service (DIS 0x180A) characteristics.
+        - `TURN_LIGHT_ON_LONG` (0x81) & `TURN_LIGHT_OFF_LONG` (0x82): Direct control by
+          6-byte hardware device address.
+    """
 
     TURN_LIGHT_ON = 0x01
     TURN_LIGHT_OFF = 0x02
     SET_LEVEL = 0x03
     SET_COLOR_TEMP = 0x04
     SET_RGB = 0x05
+    AUTHENTICATE = 0x07
+    GET_UNIT_STATE = 0x0F
     GET_DEVICE_INFO = 0x10
     GET_NETWORK_INFO = 0x11
     GET_STATE = 0x14
-    GET_UNIT_STATE = 0x0F
-    AUTHENTICATE = 0x07
+    TURN_LIGHT_ON_LONG = 0x81
+    TURN_LIGHT_OFF_LONG = 0x82
 
 
 class CasambiUUIDs:

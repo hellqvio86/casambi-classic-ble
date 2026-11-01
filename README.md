@@ -174,8 +174,9 @@ asyncio.run(main())
   - **Casambi CBU-PWM4 RGBW** (4-channel PWM dimmer)
   - **AIMOTION GLOW** (Pendant luminaire)
   - *All running Casambi Classic firmware (v26.x or earlier).*
+- **Command Variants & Hardware Evidence:** See the [Command Variant & Hardware Compatibility Matrix](docs/protocol.md#3-command-variant--hardware-compatibility-matrix) in `docs/protocol.md` for exact opcode payloads (1-byte vs 2-byte unit IDs), verified models, and capture provenance.
 - **Concurrent Connections:** Casambi mesh nodes typically allow only **one active BLE connection** at a time. If the official Casambi mobile app is actively connected to a node, connection attempts from other clients will be rejected until the app disconnects.
-- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, and Wireshark capture guides.
+- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, signed session packets, and Wireshark capture guides.
 
 ---
 

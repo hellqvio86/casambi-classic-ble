@@ -302,11 +302,21 @@ class TestCasambiDevice:
         await device.turn_on_by_address(address="AA:BB:CC:DD:EE:FF")
         await device.turn_off_by_address(address="AA:BB:CC:DD:EE:FF")
 
+        # Test hyphenated format and raw hex format
+        await device.turn_on_by_address(address="AA-BB-CC-DD-EE-FF")
+        await device.turn_off_by_address(address="aabbccddeeff")
+
         # Invalid address length raises CasambiDeviceError
-        with pytest.raises(CasambiDeviceError, match="Invalid address"):
+        with pytest.raises(CasambiDeviceError, match="Invalid address length"):
             await device.turn_on_by_address(address="AA:BB")
-        with pytest.raises(CasambiDeviceError, match="Invalid address"):
-            await device.turn_off_by_address(address="AA:BB")
+        with pytest.raises(CasambiDeviceError, match="Invalid address length"):
+            await device.turn_off_by_address(address="AA:BB:CC:DD:EE:FF:11")
+
+        # Invalid hex characters raise CasambiDeviceError
+        with pytest.raises(CasambiDeviceError, match="Invalid address format"):
+            await device.turn_on_by_address(address="ZZ:BB:CC:DD:EE:FF")
+        with pytest.raises(CasambiDeviceError, match="Invalid address format"):
+            await device.turn_off_by_address(address="not-hex-data")
 
     @pytest.mark.asyncio
     async def test_broadcast_commands(self, mock_bleak_client):

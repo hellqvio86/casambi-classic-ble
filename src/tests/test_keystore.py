@@ -8,7 +8,7 @@ from casambi_classic_ble._constants import (
     CLASSIC_AUTH_LEVEL_MANAGER,
     CLASSIC_AUTH_LEVEL_VISITOR,
 )
-from casambi_classic_ble._keystore import KeyStore
+from casambi_classic_ble._keystore import Key, KeyStore
 
 
 @pytest.fixture
@@ -187,8 +187,9 @@ async def test_keystore_legacy_pickle_rejected_safely(test_cache: Cache):
 
 @pytest.mark.asyncio
 async def test_keystore_json_validation_failures(test_cache: Cache):
-    """Corrupted or invalid JSON key caches must be rejected safely."""
+    """Corrupted or invalid JSON key caches must be rejected safely with CasambiCacheError."""
     from casambi_classic_ble._constants import KEY_CACHE_FILE
+    from casambi_classic_ble.exceptions import CasambiCacheError
 
     await test_cache.set_uuid(uuid="test-json-validation")
 
@@ -196,25 +197,232 @@ async def test_keystore_json_validation_failures(test_cache: Cache):
     async with test_cache as cachePath:
         await (cachePath / KEY_CACHE_FILE).write_text('{"not": "a list"}')
     ks = KeyStore(cache=test_cache)
-    await ks.load()
+    with pytest.raises(CasambiCacheError, match="Expected list"):
+        await ks.load()
     assert ks.get_key() is None
 
     # 2. Non-dict entry
     async with test_cache as cachePath:
         await (cachePath / KEY_CACHE_FILE).write_text('["not a dict"]')
     ks = KeyStore(cache=test_cache)
-    await ks.load()
+    with pytest.raises(CasambiCacheError, match="must be a dict"):
+        await ks.load()
     assert ks.get_key() is None
 
-    # 3. Invalid key length (must be 16 bytes)
+    # 3. Invalid key length (must be 16 bytes / 32 hex chars)
     async with test_cache as cachePath:
         invalid_key_json = json.dumps(
             [{"id": 1, "type": 0, "role": 1, "name": "bad", "key": "aabbcc"}]
         )
         await (cachePath / KEY_CACHE_FILE).write_text(invalid_key_json)
     ks = KeyStore(cache=test_cache)
-    await ks.load()
+    with pytest.raises(CasambiCacheError, match="must be exactly 32 characters"):
+        await ks.load()
     assert ks.get_key() is None
+
+    # 4. Malformed JSON syntax
+    async with test_cache as cachePath:
+        await (cachePath / KEY_CACHE_FILE).write_text("{unquoted json:")
+    ks = KeyStore(cache=test_cache)
+    with pytest.raises(CasambiCacheError, match="Failed to parse key cache JSON"):
+        await ks.load()
+    assert ks.get_key() is None
+
+
+@pytest.mark.asyncio
+async def test_keystore_duplicate_id_rejected(test_cache: Cache):
+    """Duplicate key IDs must be rejected by cache validation."""
+    from casambi_classic_ble._constants import KEY_CACHE_FILE
+    from casambi_classic_ble.exceptions import CasambiCacheError
+
+    await test_cache.set_uuid(uuid="test-duplicate-id")
+    payload = [
+        {"id": 1, "type": 0, "role": 1, "name": "k1", "key": "00112233445566778899aabbccddeeff"},
+        {"id": 1, "type": 0, "role": 2, "name": "k2", "key": "112233445566778899aabbccddeeff00"},
+    ]
+    async with test_cache as cachePath:
+        await (cachePath / KEY_CACHE_FILE).write_text(json.dumps(payload))
+
+    ks = KeyStore(cache=test_cache)
+    with pytest.raises(CasambiCacheError, match="Duplicate key id 1"):
+        await ks.load()
+    assert ks.get_key() is None
+
+
+@pytest.mark.asyncio
+async def test_keystore_record_count_limit_rejected(test_cache: Cache):
+    """Caches with > 256 keys must be rejected."""
+    from casambi_classic_ble._constants import KEY_CACHE_FILE
+    from casambi_classic_ble.exceptions import CasambiCacheError
+
+    await test_cache.set_uuid(uuid="test-oversized-cache")
+    payload = [
+        {"id": i, "type": 0, "role": 1, "name": f"k{i}", "key": "00112233445566778899aabbccddeeff"}
+        for i in range(257)
+    ]
+    async with test_cache as cachePath:
+        await (cachePath / KEY_CACHE_FILE).write_text(json.dumps(payload))
+
+    ks = KeyStore(cache=test_cache)
+    with pytest.raises(CasambiCacheError, match="exceeds maximum allowed records"):
+        await ks.load()
+    assert ks.get_key() is None
+
+
+@pytest.mark.asyncio
+async def test_keystore_field_validation_edge_cases(test_cache: Cache):
+    """Field bounds (type, role, name, missing fields) must be enforced."""
+    from casambi_classic_ble._constants import KEY_CACHE_FILE
+    from casambi_classic_ble.exceptions import CasambiCacheError
+
+    await test_cache.set_uuid(uuid="test-field-bounds")
+
+    cases = [
+        (
+            {
+                "id": -2,
+                "type": 0,
+                "role": 1,
+                "name": "k",
+                "key": "00112233445566778899aabbccddeeff",
+            },
+            "Key id",
+        ),
+        (
+            {
+                "id": 65536,
+                "type": 0,
+                "role": 1,
+                "name": "k",
+                "key": "00112233445566778899aabbccddeeff",
+            },
+            "Key id",
+        ),
+        (
+            {
+                "id": 1,
+                "type": -2,
+                "role": 1,
+                "name": "k",
+                "key": "00112233445566778899aabbccddeeff",
+            },
+            "Key type",
+        ),
+        (
+            {
+                "id": 1,
+                "type": 65536,
+                "role": 1,
+                "name": "k",
+                "key": "00112233445566778899aabbccddeeff",
+            },
+            "Key type",
+        ),
+        (
+            {"id": 1, "type": 0, "role": 5, "name": "k", "key": "00112233445566778899aabbccddeeff"},
+            "Invalid key role",
+        ),
+        (
+            {
+                "id": 1,
+                "type": 0,
+                "role": 1,
+                "name": "a" * 129,
+                "key": "00112233445566778899aabbccddeeff",
+            },
+            "exceeds maximum length",
+        ),
+        ({"id": 1, "type": 0, "role": 1, "name": "k"}, "Missing required field"),
+        ({"id": 1, "type": 0, "role": 1, "name": "k", "key": "zz" * 16}, "Validation failed"),
+    ]
+
+    for item, match in cases:
+        async with test_cache as cachePath:
+            await (cachePath / KEY_CACHE_FILE).write_text(json.dumps([item]))
+        ks = KeyStore(cache=test_cache)
+        with pytest.raises(CasambiCacheError, match=match):
+            await ks.load()
+
+
+@pytest.mark.asyncio
+async def test_keystore_load_atomicity_no_partial_state(test_cache: Cache):
+    """Failed cache loading must leave existing in-memory keys completely untouched."""
+    from casambi_classic_ble._constants import KEY_CACHE_FILE
+    from casambi_classic_ble.exceptions import CasambiCacheError
+
+    await test_cache.set_uuid(uuid="test-atomicity")
+    ks = KeyStore(cache=test_cache)
+    # Pre-populate with a valid key in memory
+    await ks.add_key(
+        key_dict={
+            "id": 1,
+            "type": 0,
+            "role": 1,
+            "name": "existing",
+            "key": "00112233445566778899aabbccddeeff",
+        }
+    )
+    initial_key = ks.get_key()
+    assert initial_key is not None
+
+    # Write a cache with 1 valid key followed by an invalid record
+    corrupt_payload = [
+        {
+            "id": 10,
+            "type": 0,
+            "role": 2,
+            "name": "valid",
+            "key": "11111111222222223333333344444444",
+        },
+        {"id": 20, "type": 0, "role": 99, "name": "corrupt", "key": "bad"},
+    ]
+    async with test_cache as cachePath:
+        await (cachePath / KEY_CACHE_FILE).write_text(json.dumps(corrupt_payload))
+
+    with pytest.raises(CasambiCacheError, match="Invalid key role"):
+        await ks.load()
+
+    # Pre-existing in-memory keys must remain intact
+    assert ks.get_key() == initial_key
+    assert len(ks._keys) == 1
+    assert ks._keys[0].key == initial_key.key
+
+
+@pytest.mark.asyncio
+async def test_keystore_concurrent_access(test_cache: Cache):
+    """Multiple KeyStore instances accessing caches concurrently must not race or corrupt."""
+    import asyncio
+
+    from casambi_classic_ble._constants import CLASSIC_AUTH_LEVEL_VISITOR
+
+    # 1. Concurrent independent KeyStores on the same base cache
+    async def worker(worker_id: int) -> Key | None:
+        c = Cache(cache_path=test_cache.cache_path)
+        await c.set_uuid(uuid=f"concurrent-net-{worker_id}")
+        ks = KeyStore(cache=c)
+        hex_key = f"{worker_id:02x}" * 16
+        await ks.set_legacy_key(key=hex_key, is_visitor=True)
+        await ks.load()
+        return ks.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR)
+
+    results = await asyncio.gather(*[worker(i) for i in range(1, 6)])
+    for res in results:
+        assert res is not None
+
+    # 2. Concurrent readers on a shared KeyStore cache
+    await test_cache.set_uuid(uuid="shared-net")
+    ks_writer = KeyStore(cache=test_cache)
+    await ks_writer.set_legacy_key(key="11" * 16, is_visitor=True)
+
+    async def reader() -> Key | None:
+        ks_reader = KeyStore(cache=test_cache)
+        await ks_reader.load()
+        return ks_reader.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR)
+
+    readers = await asyncio.gather(*[reader() for _ in range(5)])
+    for r in readers:
+        assert r is not None
+        assert r.key == bytes.fromhex("11" * 16)
 
 
 def test_no_pickle_imported_in_library():

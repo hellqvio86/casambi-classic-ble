@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import struct
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
@@ -76,7 +77,6 @@ class CasambiClient(ABC):
         self._callbackTask: asyncio.Task[None] | None = None
 
         self._address_or_device = address_or_device
-        self._address_or_devive = address_or_device  # Deprecated alias
         self.address = (
             address_or_device.address
             if isinstance(address_or_device, BLEDevice)
@@ -89,19 +89,50 @@ class CasambiClient(ABC):
         self._disconnectedCallback = disc_cb
         self._activityLock = asyncio.Lock()
 
+        pv = getattr(network, "protocol_version", None)
+        if not isinstance(pv, int):
+            pv = getattr(network, "protocolVersion", 0)
+        protocol_version = pv if isinstance(pv, int) else 0
+
         self._logger.info(
-            f"Initializing client for {self.address} with network version {network.protocolVersion}."
+            f"Initializing client for {self.address} with network version {protocol_version}."
         )
 
-        self._checkProtocolVersion(network.protocolVersion)
+        self._check_protocol_version(protocol_version)
+
+    @property
+    def _address_or_devive(self) -> str | BLEDevice:
+        """Deprecated alias with typo for _address_or_device."""
+        warnings.warn(
+            "_address_or_devive is deprecated due to typo; use _address_or_device instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._address_or_device
 
     @abstractmethod
-    def _checkProtocolVersion(self, version: int) -> None:
+    def _check_protocol_version(self, version: int) -> None:
         pass
 
-    def _checkState(self, desired: ConnectionState) -> None:
+    def _checkProtocolVersion(self, version: int) -> None:
+        warnings.warn(
+            "_checkProtocolVersion is deprecated; use _check_protocol_version instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._check_protocol_version(version)
+
+    def _check_state(self, desired: ConnectionState) -> None:
         if self._connectionState != desired:
             raise ConnectionStateError(desired, self._connectionState)
+
+    def _checkState(self, desired: ConnectionState) -> None:
+        warnings.warn(
+            "_checkState is deprecated; use _check_state instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._check_state(desired)
 
     async def _cleanup_callback_task(self) -> None:
         """Cancel and wait for callback worker task."""
@@ -112,7 +143,7 @@ class CasambiClient(ABC):
             self._callbackTask = None
 
     async def connect(self) -> None:
-        self._checkState(ConnectionState.NONE)
+        self._check_state(ConnectionState.NONE)
 
         self._logger.info(f"Connection to {self.address}")
 
@@ -122,8 +153,8 @@ class CasambiClient(ABC):
 
         # To use bleak_retry_connector we need to have a BLEDevice so get one if we only have the address.
         device = (
-            self._address_or_devive
-            if isinstance(self._address_or_devive, BLEDevice)
+            self._address_or_device
+            if isinstance(self._address_or_device, BLEDevice)
             else await get_device(self.address)
         )
 
@@ -145,7 +176,7 @@ class CasambiClient(ABC):
             )
             # Reset callback queue and spawn task only after connection succeeds
             self._callbackQueue = asyncio.Queue()
-            self._callbackTask = asyncio.create_task(self._processCallbacks())
+            self._callbackTask = asyncio.create_task(self._process_callbacks())
         except BleakNotFoundError as err:
             await self._cleanup_callback_task()
             # Guess that this is the error reason since there are no better error types
@@ -179,11 +210,19 @@ class CasambiClient(ABC):
             self._logger.debug("Executing disconnect callback.")
             self._disconnectedCallback()
 
-    def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
+    def _queue_callback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
         if self._callbackQueue is not None:
             self._callbackQueue.put_nowait((handle, data))
 
-    async def _processCallbacks(self) -> None:
+    def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
+        warnings.warn(
+            "_queueCallback is deprecated; use _queue_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._queue_callback(handle, data)
+
+    async def _process_callbacks(self) -> None:
         try:
             while True:
                 if self._callbackQueue is None:
@@ -205,6 +244,14 @@ class CasambiClient(ABC):
             self._logger.info("Callback processing task cancelled.")
             raise
 
+    async def _processCallbacks(self) -> None:
+        warnings.warn(
+            "_processCallbacks is deprecated; use _process_callbacks instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._process_callbacks()
+
     def _callback_multiplexer(
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
     ) -> None:
@@ -213,12 +260,12 @@ class CasambiClient(ABC):
         )
 
         if self._connectionState == ConnectionState.CONNECTED:
-            self._exchNotifyCallback(handle, data)
+            self._exch_notify_callback(handle, data)
         elif self._connectionState == ConnectionState.KEY_EXCHANGED:
-            self._authNotifyCallback(handle, data)
+            self._auth_notify_callback(handle, data)
         elif self._connectionState == ConnectionState.AUTHENTICATED:
             self._inPacketCount += 1
-            self._establishedNotifyCallback(handle, data)
+            self._established_notify_callback(handle, data)
         else:
             self._logger.warning(
                 "Unhandled notify in state %s (%d bytes)", self._connectionState, len(data)
@@ -228,36 +275,75 @@ class CasambiClient(ABC):
     _callbackMulitplexer = _callback_multiplexer
 
     @abstractmethod
-    async def exchangeKey(self, retries: int = 2) -> None:
+    async def exchange_key(self, *, retries: int = 2) -> None:
         pass
 
+    async def exchangeKey(self, *args: Any, **kwargs: Any) -> None:
+        warnings.warn(
+            "exchangeKey is deprecated; use exchange_key instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        retries = args[0] if args else kwargs.get("retries", 2)
+        await self.exchange_key(retries=retries)
+
     @abstractmethod
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
+    def _exch_notify_callback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         pass
+
+    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
+        warnings.warn(
+            "_exchNotifyCallback is deprecated; use _exch_notify_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._exch_notify_callback(handle, data)
 
     @abstractmethod
     async def authenticate(self) -> None:
         pass
 
     @abstractmethod
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
-        pass
-
-    @abstractmethod
-    def _establishedNotifyCallback(
+    def _auth_notify_callback(
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
     ) -> None:
         pass
 
-    async def send(self, packet: bytes, retries: int = 2) -> None:
-        self._checkState(ConnectionState.AUTHENTICATED)
+    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
+        warnings.warn(
+            "_authNotifyCallback is deprecated; use _auth_notify_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._auth_notify_callback(handle, data)
+
+    @abstractmethod
+    def _established_notify_callback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
+        pass
+
+    def _establishedNotifyCallback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
+        warnings.warn(
+            "_establishedNotifyCallback is deprecated; use _established_notify_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._established_notify_callback(handle, data)
+
+    async def send(self, packet: bytes, *, retries: int = 2) -> None:
+        self._check_state(ConnectionState.AUTHENTICATED)
 
         async with self._activityLock:
             self._logger.debug(f"Sending packet {packet.hex()} with counter {self._outPacketCount}")
             retry = 0
             while True:
                 try:
-                    await self._sendInternal(packet)
+                    await self._send_internal(packet)
                     break
                 except BluetoothError:
                     retry += 1
@@ -268,8 +354,16 @@ class CasambiClient(ABC):
             self._outPacketCount += 1
 
     @abstractmethod
-    async def _sendInternal(self, packet: bytes) -> None:
+    async def _send_internal(self, packet: bytes) -> None:
         pass
+
+    async def _sendInternal(self, packet: bytes) -> None:
+        warnings.warn(
+            "_sendInternal is deprecated; use _send_internal instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._send_internal(packet)
 
     async def disconnect(self) -> None:
         self._logger.info("Disconnecting...")
@@ -314,13 +408,33 @@ class CasambiClientClassic(CasambiClient):
         )
         self._connhash: bytes
 
-        visitorKey = network.keyStore.getLegacyKey(CLASSIC_AUTH_LEVEL_VISITOR)
+        keystore = getattr(network, "keystore", None)
+        if keystore is None or (
+            hasattr(network, "keyStore")
+            and network.keyStore is not keystore
+            and not hasattr(keystore, "get_legacy_key")
+        ):
+            keystore = getattr(network, "keyStore", None)
+
+        visitorKey = None
+        if keystore is not None:
+            if hasattr(keystore, "get_legacy_key"):
+                visitorKey = keystore.get_legacy_key(role=CLASSIC_AUTH_LEVEL_VISITOR)
+            elif hasattr(keystore, "getLegacyKey"):
+                visitorKey = keystore.getLegacyKey(CLASSIC_AUTH_LEVEL_VISITOR)
+
         if not visitorKey:
             raise ProtocolError("Can't continue without visitor key.")
         self._visitorEncryptor = ClassicEncryptor(visitorKey.key, 4)
 
-        self._managerEncryptor: ClassicEncryptor | None
-        managerKey = network.keyStore.getLegacyKey(CLASSIC_AUTH_LEVEL_MANAGER)
+        self._managerEncryptor: ClassicEncryptor | None = None
+        managerKey = None
+        if keystore is not None:
+            if hasattr(keystore, "get_legacy_key"):
+                managerKey = keystore.get_legacy_key(role=CLASSIC_AUTH_LEVEL_MANAGER)
+            elif hasattr(keystore, "getLegacyKey"):
+                managerKey = keystore.getLegacyKey(CLASSIC_AUTH_LEVEL_MANAGER)
+
         if managerKey:
             self._managerEncryptor = ClassicEncryptor(managerKey.key, 16)
         else:
@@ -329,7 +443,7 @@ class CasambiClientClassic(CasambiClient):
                 "No manager key in keystore. Manager level packets won't be handled correctly."
             )
 
-    def _checkProtocolVersion(self, version: int) -> None:
+    def _check_protocol_version(self, version: int) -> None:
         if version >= FIRST_UNSUPPORTED_PROTOCOL_VERSION:
             raise UnsupportedProtocolVersion(
                 f"Protocol version {version} is not supported. This library is strictly for "
@@ -343,8 +457,8 @@ class CasambiClientClassic(CasambiClient):
                 f"Minimum supported version is {MIN_SUPPORTED_CLASSIC_VERSION}."
             )
 
-    async def exchangeKey(self, retries: int = 2) -> None:
-        self._checkState(ConnectionState.CONNECTED)
+    async def exchange_key(self, *, retries: int = 2) -> None:
+        self._check_state(ConnectionState.CONNECTED)
 
         self._logger.info("Starting key exchange...")
 
@@ -377,14 +491,19 @@ class CasambiClientClassic(CasambiClient):
             ) = struct.unpack_from(">8sBBBBB", firstResp)
             self._flags = flags_lo | (flags_high << 8)
 
-            if protocolVersion != self._network.protocolVersion:
+            pv = getattr(self._network, "protocol_version", None)
+            if not isinstance(pv, int):
+                pv = getattr(self._network, "protocolVersion", 0)
+            expected_version = pv if isinstance(pv, int) else 0
+
+            if protocolVersion != expected_version:
                 self._logger.warning(
                     "Device reported unexpected version. Was %i, expected %i.",
                     protocolVersion,
-                    self._network.protocolVersion,
+                    expected_version,
                 )
 
-            self._checkProtocolVersion(protocolVersion)
+            self._check_protocol_version(protocolVersion)
 
             self._logger.debug(
                 f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash set (8 bytes)"
@@ -394,32 +513,36 @@ class CasambiClientClassic(CasambiClient):
             try:
                 await self._gattClient.start_notify(
                     CASA_AUTH_CHAR_UUID,
-                    self._queueCallback,
+                    self._queue_callback,
                     bluez={"use_start_notify": True},
                 )
             except BleakError as err:
                 raise BluetoothError("Failed to initiate GATT notify.") from err
             self._connectionState = ConnectionState.KEY_EXCHANGED
 
-    def _exchNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
+    def _exch_notify_callback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
 
     async def authenticate(self) -> None:
-        self._checkState(ConnectionState.KEY_EXCHANGED)
+        self._check_state(ConnectionState.KEY_EXCHANGED)
 
         async with self._activityLock:
             # We only send the version for now and not the time.
             self._logger.info("Sending version.")
-            await self._sendInternal(b"\x00\x01\x0b")
+            await self._send_internal(b"\x00\x01\x0b")
             # Manually increment since we have to bypass send due to locking.
             self._outPacketCount += 1
 
             self._connectionState = ConnectionState.AUTHENTICATED
 
-    def _authNotifyCallback(self, handle: BleakGATTCharacteristic, data: bytes | bytearray) -> None:
+    def _auth_notify_callback(
+        self, handle: BleakGATTCharacteristic, data: bytes | bytearray
+    ) -> None:
         raise ProtocolError("Refusing to handle callback at this time for classic network.")
 
-    def _establishedNotifyCallback(
+    def _established_notify_callback(
         self, handle: BleakGATTCharacteristic, data: bytes | bytearray
     ) -> None:
         self._logger.debug(f"Incoming data: {data.hex()}")
@@ -508,7 +631,7 @@ class CasambiClientClassic(CasambiClient):
 
                 pos = statePos + stateLen
 
-    async def _sendInternal(self, packet: bytes) -> None:
+    async def _send_internal(self, packet: bytes) -> None:
         sequence = int.to_bytes(self._outPacketCount & 0xFFFF, 2, "big")
         if sequence == b"\x00\x00":
             sequence = b"\x00\x01"

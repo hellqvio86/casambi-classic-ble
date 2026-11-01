@@ -119,3 +119,15 @@ class UnsupportedProtocolVersion(CasambiClassicBleError):
     """Exception that is raised when the network has an unsupported version."""
 
     pass
+
+
+class CasambiCacheError(CasambiClassicBleError):
+    """Raised when cache loading, validation, or persistence fails."""
+
+    pass
+
+
+class CasambiSecurityError(CasambiCacheError):
+    """Raised when security invariants (e.g. symlinks, path traversal) are violated."""
+
+    pass

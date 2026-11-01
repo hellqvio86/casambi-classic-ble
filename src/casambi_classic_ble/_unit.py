@@ -559,6 +559,31 @@ class Unit:
         return self._state
 
     @property
+    def device_id(self) -> int:
+        """Return the device ID within the network."""
+        return self.deviceId
+
+    @property
+    def type_id(self) -> int:
+        """Return the type ID of the unit."""
+        return self._typeId
+
+    @property
+    def firmware_version(self) -> str:
+        """Return the firmware version of the unit."""
+        return self.firmwareVersion
+
+    @property
+    def unit_type(self) -> UnitType:
+        """Return the UnitType describing unit capabilities."""
+        return self.unitType
+
+    @property
+    def is_classic(self) -> bool:
+        """Return True if unit belongs to a Classic network."""
+        return self._isClassic
+
+    @property
     def is_on(self) -> bool:
         """Determine whether the unit is turned on."""
         if self.unitType.get_control(UnitControlType.ONOFF) and self._state:
@@ -801,6 +826,12 @@ class Scene:
         name: str = "",
         units: dict[int, int] | None = None,
     ) -> None:
+        if args or sceneId is not None or s_id is not None:
+            warnings.warn(
+                "Scene positional arguments or sceneId are deprecated; use Scene(scene_id=...) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         sid = (
             scene_id
             if scene_id is not None
@@ -810,15 +841,20 @@ class Scene:
                 else (s_id if s_id is not None else (args[0] if len(args) > 0 else 0))
             )
         )
-        self.sceneId: int = sid
+        self.scene_id: int = sid
         self.name: str = name if name else (args[1] if len(args) > 1 else "")
         self.units: dict[int, int] = (
             units if units is not None else (args[2] if len(args) > 2 else {})
         )
 
     @property
-    def scene_id(self) -> int:
-        return self.sceneId
+    def sceneId(self) -> int:
+        warnings.warn(
+            "sceneId is deprecated; use scene_id instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.scene_id
 
 
 class Group:
@@ -839,6 +875,12 @@ class Group:
         name: str = "",
         units: list[Any] | None = None,
     ) -> None:
+        if args or groupId is not None or groudId is not None or g_id is not None:
+            warnings.warn(
+                "Group positional arguments, groupId, and groudId are deprecated; use Group(group_id=...) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         gid = (
             group_id
             if group_id is not None
@@ -852,14 +894,24 @@ class Group:
                 )
             )
         )
-        self.groudId: int = gid
+        self.group_id: int = gid
         self.name: str = name if name else (args[1] if len(args) > 1 else "")
         self.units: list[Any] = units if units is not None else (args[2] if len(args) > 2 else [])
 
     @property
-    def group_id(self) -> int:
-        return self.groudId
+    def groupId(self) -> int:
+        warnings.warn(
+            "groupId is deprecated; use group_id instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_id
 
     @property
-    def groupId(self) -> int:
-        return self.groudId
+    def groudId(self) -> int:
+        warnings.warn(
+            "groudId is deprecated; use group_id instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.group_id

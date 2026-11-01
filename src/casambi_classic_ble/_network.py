@@ -39,7 +39,11 @@ from .exceptions import (
     NetworkOnlineUpdateNeededError,
     NetworkUpdateError,
 )
-from .utils import set_secure_file_permissions
+from .utils import (
+    async_atomic_write_file,
+    set_secure_file_permissions,
+    validate_safe_path,
+)
 
 
 @dataclass()
@@ -118,16 +122,17 @@ class Network:
         self._keystore = KeyStore(self._cache)
         await self._keystore.load()
 
-        await self._loadSession()
-        await self._loadTypeCache()
+        await self._load_session()
+        await self._load_type_cache()
 
-    async def _loadSession(self) -> None:
+    async def _load_session(self) -> None:
         self._logger.debug("Loading session...")
         async with self._cache as cachePath:
             json_file = cachePath / SESSION_CACHE_FILE
             pickle_file = cachePath / LEGACY_SESSION_CACHE_FILE
 
             if await json_file.exists():
+                validate_safe_path(json_file, base_path=cachePath)
                 try:
                     raw_json = await json_file.read_text()
                     data = json.loads(raw_json)
@@ -138,7 +143,7 @@ class Network:
                     self._session = _NetworkSession.from_dict(data)
                     self._logger.info("Session loaded from JSON.")
                     return
-                except Exception as err:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as err:
                     self._logger.warning(f"Failed to load session from JSON: {err}")
 
             if await pickle_file.exists():
@@ -149,28 +154,53 @@ class Network:
                 warnings.warn(msg, UserWarning, stacklevel=2)
                 self._logger.warning(msg)
 
+    async def _loadSession(self) -> None:
+        warnings.warn(
+            "_loadSession is deprecated; use _load_session instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._load_session()
+
     async def _save_session_to_cache(self, cachePath: Any) -> None:
         if self._session is None:
             return
         json_file = cachePath / SESSION_CACHE_FILE
-        await json_file.write_text(json.dumps(self._session.to_dict(), indent=2))
-        set_secure_file_permissions(path=json_file)
+        validate_safe_path(json_file, base_path=cachePath)
+        await async_atomic_write_file(
+            path=json_file,
+            content=json.dumps(self._session.to_dict(), indent=2),
+        )
 
     async def _save_session(self) -> None:
         self._logger.debug("Saving session...")
         async with self._cache as cachePath:
             await self._save_session_to_cache(cachePath)
 
-    _saveSession = _save_session
-    _saveSesion = _save_session
+    async def _saveSession(self) -> None:
+        warnings.warn(
+            "_saveSession is deprecated; use _save_session instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._save_session()
 
-    async def _loadTypeCache(self) -> None:
+    async def _saveSesion(self) -> None:
+        warnings.warn(
+            "_saveSesion is deprecated due to typo; use _save_session instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._save_session()
+
+    async def _load_type_cache(self) -> None:
         self._logger.debug("Loading unit type cache...")
         async with self._cache as cachePath:
             json_file = cachePath / TYPES_CACHE_FILE
             pickle_file = cachePath / LEGACY_TYPES_CACHE_FILE
 
             if await json_file.exists():
+                validate_safe_path(json_file, base_path=cachePath)
                 try:
                     raw_json = await json_file.read_text()
                     data = json.loads(raw_json)
@@ -178,6 +208,8 @@ class Network:
                         raise ValueError(
                             f"Expected dict in {TYPES_CACHE_FILE}, got {type(data).__name__}"
                         )
+                    if len(data) > 1000:
+                        raise ValueError(f"Too many unit types in cache ({len(data)} > 1000)")
                     clean_types: dict[int, tuple[UnitType | None, datetime]] = {}
                     for key_str, entry in data.items():
                         if not isinstance(entry, dict):
@@ -217,7 +249,7 @@ class Network:
                     self._unitTypes = clean_types
                     self._logger.info("Unit type cache loaded from JSON.")
                     return
-                except Exception as err:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as err:
                     self._logger.warning(
                         f"Failed to load unit type cache from JSON, resetting: {err}",
                         exc_info=True,
@@ -232,6 +264,14 @@ class Network:
                 )
                 warnings.warn(msg, UserWarning, stacklevel=2)
                 self._logger.warning(msg)
+
+    async def _loadTypeCache(self) -> None:
+        warnings.warn(
+            "_loadTypeCache is deprecated; use _load_type_cache instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._load_type_cache()
 
     async def _save_type_cache_to_cache(self, cachePath: Any) -> None:
         data: dict[str, Any] = {}
@@ -266,13 +306,24 @@ class Network:
             }
 
         json_file = cachePath / TYPES_CACHE_FILE
-        await json_file.write_text(json.dumps(data, indent=2))
-        set_secure_file_permissions(path=json_file)
+        validate_safe_path(json_file, base_path=cachePath)
+        await async_atomic_write_file(
+            path=json_file,
+            content=json.dumps(data, indent=2),
+        )
 
-    async def _saveTypeCache(self) -> None:
+    async def _save_type_cache(self) -> None:
         self._logger.debug("Saving type cache...")
         async with self._cache as cachePath:
             await self._save_type_cache_to_cache(cachePath)
+
+    async def _saveTypeCache(self) -> None:
+        warnings.warn(
+            "_saveTypeCache is deprecated; use _save_type_cache instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self._save_type_cache()
 
     async def get_network_id(self, *, force_offline: bool = False) -> None:
         self._logger.info("Getting network id...")
@@ -282,12 +333,13 @@ class Network:
             legacyNetworkCacheFile = cachePath / LEGACY_NETWORK_ID_CACHE_FILE
 
             if await networkCacheFile.exists():
+                validate_safe_path(networkCacheFile, base_path=cachePath)
                 self._id = await networkCacheFile.read_text()
             elif await legacyNetworkCacheFile.exists():
+                validate_safe_path(legacyNetworkCacheFile, base_path=cachePath)
                 self._id = await legacyNetworkCacheFile.read_text()
-                # Migrate to new file with secure permissions
-                await networkCacheFile.write_text(self._id)
-                set_secure_file_permissions(path=networkCacheFile)
+                # Migrate to new file with secure permissions and atomic write
+                await async_atomic_write_file(path=networkCacheFile, content=self._id)
                 try:
                     await legacyNetworkCacheFile.unlink()
                 except Exception as err:
@@ -322,12 +374,15 @@ class Network:
             )
 
         new_id = cast(str, res.json()["id"])
+        if not isinstance(new_id, str) or not new_id.strip() or "/" in new_id or ".." in new_id:
+            raise NetworkNotFoundError(f"Received invalid network ID format: {new_id}")
+
         if self._id != new_id:
             self._logger.info(f"Network id changed from {self._id} to {new_id}.")
             async with self._cache as cachePath:
                 networkCacheFile = cachePath / NETWORK_ID_CACHE_FILE
-                await networkCacheFile.write_text(new_id)
-                set_secure_file_permissions(path=networkCacheFile)
+                validate_safe_path(networkCacheFile, base_path=cachePath)
+                await async_atomic_write_file(path=networkCacheFile, content=new_id)
             self._id = new_id
         self._logger.info(f"Got network id {self._id}.")
 
@@ -349,11 +404,29 @@ class Network:
         return not self._session.expired()
 
     @property
-    def keyStore(self) -> KeyStore:
+    def keystore(self) -> KeyStore:
         return self._keystore
 
     @property
+    def keyStore(self) -> KeyStore:
+        warnings.warn(
+            "keyStore is deprecated; use keystore instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._keystore
+
+    @property
+    def protocol_version(self) -> int:
+        return self._protocolVersion
+
+    @property
     def protocolVersion(self) -> int:
+        warnings.warn(
+            "protocolVersion is deprecated; use protocol_version instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._protocolVersion
 
     async def log_in(self, *, password: str, force_offline: bool = False) -> None:
@@ -484,7 +557,7 @@ class Network:
         self.units = []
         units = network["network"]["units"]
         for u in units:
-            uType = await self._fetchUnitInfo(u["type"])
+            uType = await self._fetch_unit_info(u["type"])
             if uType is None:
                 self._logger.info("Failed to fetch type for unit %i. Skipping.", u["type"])
                 continue
@@ -516,7 +589,7 @@ class Network:
                 if subC["type"] != 1:
                     continue
 
-                unitMatch = list(filter(lambda u: u.deviceId == subC["unit"], self.units))
+                unitMatch = list(filter(lambda u: u.device_id == subC["unit"], self.units))
                 if len(unitMatch) != 1:
                     self._logger.warning(
                         f"Incositent unit reference to {subC['unit']} in group {c['groupID']}. Got {len(unitMatch)} matches."
@@ -524,23 +597,23 @@ class Network:
                     continue
                 group_units.append(unitMatch[0])
 
-            gObj = Group(c["groupID"], c["name"], group_units)
+            gObj = Group(group_id=c["groupID"], name=c["name"], units=group_units)
             self.groups.append(gObj)
 
         # Parse scenes
         self.scenes = []
         scenes = network["network"]["scenes"]
         for s in scenes:
-            sObj = Scene(s["sceneID"], s["name"])
+            sObj = Scene(scene_id=s["sceneID"], name=s["name"])
             self.scenes.append(sObj)
 
         # TODO: Parse more stuff
 
-        await self._saveTypeCache()
+        await self._save_type_cache()
 
         self._logger.info("Network updated.")
 
-    async def _fetchUnitInfo(self, id: int) -> UnitType | None:
+    async def _fetch_unit_info(self, id: int) -> UnitType | None:
         self._logger.info(f"Fetching unit type for id {id}...")
 
         # Check whether unit type is already cached
@@ -608,6 +681,14 @@ class Network:
 
         self._logger.info("Sucessfully fetched unit type.")
         return unitTypeObj
+
+    async def _fetchUnitInfo(self, id: int) -> UnitType | None:
+        warnings.warn(
+            "_fetchUnitInfo is deprecated; use _fetch_unit_info instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self._fetch_unit_info(id)
 
     async def disconnect(self) -> None:
         return None

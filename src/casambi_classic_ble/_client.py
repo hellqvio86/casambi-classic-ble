@@ -384,6 +384,8 @@ class CasambiClientClassic(CasambiClient):
                     self._network.protocolVersion,
                 )
 
+            self._checkProtocolVersion(protocolVersion)
+
             self._logger.debug(
                 f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash set (8 bytes)"
             )

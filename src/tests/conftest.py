@@ -19,6 +19,9 @@ def mock_bleak_client():
     client.stop_notify = AsyncMock()
     client.write_gatt_char = AsyncMock()
     client.read_gatt_char = AsyncMock(return_value=b"test_data")
+    mock_service = Mock()
+    mock_service.uuid = "0000fe4d-0000-1000-8000-00805f9b34fb"
+    client.services = [mock_service]
     return client
 
 

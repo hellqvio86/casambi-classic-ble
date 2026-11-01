@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.4] - 2026-11-01
+
+### Fixed
+- Fixed 2-byte zero sequence wrap check in `CasambiClientClassic._sendInternal` (`b"\x00\x00"` -> `b"\x00\x01"`).
+- Ordered exception handlers in `CasambiClient.connect()` most-specific first with explicit messages and error chaining (`from err`).
+- Re-raised `asyncio.CancelledError` in `_processCallbacks`, replaced bare `except:` in `_connectClient`, and migrated `_activityLock` to `async with` context managers.
+- Added bounds checks in `CasambiClientClassic._establishedNotifyCallback` before reading packet type and optional `extra1`/`extra2` fields.
+- Replaced manual MAC byte comparison in `ClassicEncryptor.verify` with constant-time `hmac.compare_digest`.
+- Replaced all runtime `assert` statements with explicit `ValueError` and `RuntimeError` raises for `PYTHONOPTIMIZE=1` safety.
+- Dynamically read `casambi_classic_ble.__version__` from package metadata via `importlib.metadata.version`.
+
+### Changed
+- Added Python `3.14` to CI test matrix and enabled `filterwarnings = ["error"]` in pytest configuration.
+- Standardized exception variable naming to `err` across all modules.
+
 ## [0.3.3] - 2026-10-31
 
 ### Changed

@@ -337,17 +337,16 @@ class CasambiDevice:
 
     async def disconnect(self) -> None:
         """Disconnect from the device"""
-        if not self._is_connected and not (
-            self.client and getattr(self.client, "is_connected", False)
-        ):
+        if not self._is_connected and self.client is None:
             return
 
         if self.client:
             try:
                 # Only stop notify if we are connected
-                with contextlib.suppress(Exception):
-                    await self.client.stop_notify(self._status_uuid)
                 if getattr(self.client, "is_connected", False):
+                    with contextlib.suppress(Exception):
+                        await self.client.stop_notify(self._status_uuid)
+                with contextlib.suppress(Exception):
                     await self.client.disconnect()
                 logger.info(f"Disconnected from {self.name}")
             except asyncio.CancelledError:

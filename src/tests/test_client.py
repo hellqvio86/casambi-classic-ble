@@ -578,3 +578,71 @@ def test_classic_callback_multiplexer_unhandled_state(mock_classic_client, caplo
     with caplog.at_level(logging.WARNING):
         mock_classic_client._callback_multiplexer(MagicMock(), b"\x01\x02")
     assert "Unhandled notify in state" in caplog.text
+
+
+def test_disconnect_marks_offline_before_callback(mock_classic_client):
+    """Verify that _connectionState is set to NONE before disconnectedCallback executes."""
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+    observed = []
+    mock_classic_client._disconnectedCallback.side_effect = lambda: observed.append(
+        mock_classic_client._connectionState
+    )
+    mock_classic_client._on_disconnect(client=MagicMock())
+    assert observed == [ConnectionState.NONE]
+    assert mock_classic_client._connectionState == ConnectionState.NONE
+
+
+async def test_disconnect_allows_eager_reconnect(mock_classic_client):
+    """Verify that eager reconnect tasks in disconnect callback succeed and keep connected state."""
+    from casambi_classic_ble import Casambi
+
+    casa = Casambi.__new__(Casambi)
+    casa._casaNetwork = MagicMock()
+    casa._casaClient = mock_classic_client
+    casa._connectionLock = asyncio.Lock()
+    mock_classic_client.disconnect = AsyncMock()
+
+    async def fake_connect(address):
+        mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+
+    casa._connectClient = AsyncMock(side_effect=fake_connect)
+    tasks = []
+
+    def disconnected():
+        # Home Assistant executes config entry background tasks with eager_start=True
+        loop = asyncio.get_running_loop()
+        tasks.append(
+            asyncio.Task(
+                casa.reconnect(address="AA:BB:CC:DD:EE:FF"),
+                eager_start=True,
+                loop=loop,
+            )
+        )
+
+    mock_classic_client._disconnectedCallback = disconnected
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+    mock_classic_client._on_disconnect(client=MagicMock())
+
+    await asyncio.gather(*tasks)
+    casa._connectClient.assert_awaited_once_with("AA:BB:CC:DD:EE:FF")
+    assert casa.connected
+
+
+async def test_disconnect_cleans_up_gatt_client_even_when_not_connected(mock_classic_client):
+    """Verify that BleakClient.disconnect is awaited even when is_connected is already False."""
+    mock_classic_client._gattClient.is_connected = False
+    await mock_classic_client.disconnect()
+    mock_classic_client._gattClient.disconnect.assert_awaited_once()
+
+
+async def test_device_disconnect_cleans_up_client_even_when_not_connected():
+    """Verify CasambiDevice.disconnect calls BleakClient.disconnect even if is_connected is False."""
+    from casambi_classic_ble import CasambiDevice
+
+    mock_bleak = AsyncMock()
+    mock_bleak.is_connected = False
+    device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak)
+    device._is_connected = False
+
+    await device.disconnect()
+    mock_bleak.disconnect.assert_awaited_once()

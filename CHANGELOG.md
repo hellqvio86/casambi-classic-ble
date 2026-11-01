@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.2] - 2026-11-01
+
+### Fixed
+- **Disconnect Callback State Ordering (Eager Reconnect Fix):**
+  - Set `self._connectionState = ConnectionState.NONE` before executing `self._disconnectedCallback()` in `_client.py`.
+  - Fixes race condition where eager background tasks in Python 3.12+ / Home Assistant run `reconnect()` while `_connectionState` is still `AUTHENTICATED`, causing `reconnect()` to return early without reconnecting and leaving the mesh disconnected.
+  - Avoids overwriting newly established connection state if an eager callback immediately restores the connection.
+- **BlueZ D-Bus Resource Cleanup on Disconnection:**
+  - Removed `is_connected` guard on `_gattClient.disconnect()` in `_client.py` and `device.py`.
+  - Ensures Bleak always invokes `disconnect()` to cleanly unregister notifications and release private D-Bus bus handles on Linux/BlueZ even after an unexpected link drop, preventing frozen key exchanges on subsequent reconnection attempts.
+
 ## [0.5.1] - 2026-11-01
 
 ### Added

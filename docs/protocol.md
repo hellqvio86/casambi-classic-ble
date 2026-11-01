@@ -81,20 +81,41 @@ Classic Casambi firmware supports multiple command payload variants depending on
 
 ## 4. Advertisement Beacon Format
 
-Casambi devices broadcast passive BLE manufacturer data using Company Identifier `0x03C3` (decimal `963`):
+Casambi devices broadcast passive BLE manufacturer data using Company Identifier `0x03C3` (decimal `963`, `CASAMBI_MANUFACTURER_ID`):
 
 ```
-+------------------------------------+-----------------------------+
-| Device MAC Address (6 Bytes, rev)  | Status / Flags (4 Bytes)    |
-+------------------------------------+-----------------------------+
++------------------------------------+-------------------+-------------------+-----------------------------+
+| Device MAC Address (Bytes 0..5)    | Status (Byte 6)   | Level (Byte 7)    | Trailing Flags (Bytes 8..N) |
++------------------------------------+-------------------+-------------------+-----------------------------+
 ```
 
-- **Byte 0..5:** 6-byte hardware device address, broadcast in reversed byte order (`[::-1]`) by Classic nodes.
-- **Byte 6:** Status byte:
-  - **Bit 0 (`byte & 0x01`):** Verified Power State (`1` = On, `0` = Off).
-  - **Bits 1..7:** Rolling counter and unverified status flags.
-- **Byte 7:** Verified Dimmer Level (`0x00`–`0xFF`, mapped to 0%–100% brightness).
-- **Byte 8..9:** Unverified network state and unit flags.
+### 4.1 Verified vs. Unverified Fields
+
+To prevent misinterpreting undocumented mesh bits as user-visible state, the parser (`casambi_classic_ble._adv.parse_advertisement`) strictly separates **verified** fields from **unverified/inferred** fields:
+
+| Byte Offset | Bit / Range | Field Name | Classification | Description |
+|---|---|---|---|---|
+| `0..5` | 48 bits | `reversed_mac` / `forward_mac` | **Verified** (`captured`) | 6-byte hardware MAC address, broadcast in reversed byte order (`[::-1]`) by Classic nodes. |
+| `0` | 8 bits | `address_byte` | **Verified** (`captured`) | First raw byte of the manufacturer payload (least-significant MAC octet in reversed beacons). Never used as a unit `id`. |
+| `6` | Bit 0 (`byte & 0x01`) | `is_on` (`on`) | **Verified** (`captured`) | Binary power state (`1` = On, `0` = Off). |
+| `6` | Bits 1..7 (`(byte >> 1) & 0x7F`) | `unverified.status_flags` | **Unverified / Inferred** | 7-bit rolling sequence counter and internal status flags. Exposed only under `status["unverified"]["status_flags"]`. |
+| `7` | `0x00`–`0xFF` | `level_byte` (`dimLevel`, `level_percent`) | **Verified** (`captured`) | Linear brightness level (`0x00` = 0%, `0xFF` = 100%). |
+| `8..N` | 0..N bytes | `unverified.trailing_hex` | **Unverified / Inferred** | Optional network/unit mesh state bytes (`0` bytes in 8-byte minimal beacons, `2` bytes in standard 10-byte Classic 26.x beacons, `4+` bytes in extended 12-byte mesh beacons). Exposed only under `status["unverified"]["trailing_hex"]`. |
+
+### 4.2 Supported Beacon Layouts & Validation Rules
+
+1. **Manufacturer ID Validation:** Payloads from any Company ID other than `0x03C3` (`963`) are ignored (`None`).
+2. **Minimum Length (`8` Bytes):** Frames shorter than 8 bytes lack the mandatory 6-byte MAC + 1-byte status + 1-byte level header and are safely ignored (`None`).
+3. **Supported Frame Lengths:**
+   - **8-byte minimal layout:** `[MAC (6B)] [Status (1B)] [Level (1B)]` (early Classic firmware).
+   - **10-byte standard layout:** `[MAC (6B)] [Status (1B)] [Level (1B)] [Flags (2B)]` (Vadsbo LD220WCM, LD220WCM_onoff, Classic FW 26.x).
+   - **12+ byte extended mesh layout:** `[MAC (6B)] [Status (1B)] [Level (1B)] [Mesh Trailing (4+B)]` (CBU-PWM4, AIMOTION GLOW).
+4. **Cross-Device & Cross-Network Isolation:**
+   - If a `BLEDevice` peripheral is supplied to `update_from_advertisement`, its address must match the `CasambiDevice` instance; frames originating from a different peripheral are rejected immediately.
+   - Manufacturer payload MAC bytes (`0..5`) must also match the device's locked internal MAC or normalized target MAC, preventing relayed mesh frames from updating the wrong device.
+5. **Duplicate Suppression & Counter Wraparound:**
+   - State subscribers deduplicate consecutive identical `(on, dimLevel)` tuples per unit/device.
+   - Rolling counter increments or 7-bit wraparound (`0x7F -> 0x00`, raw status byte `0xFE -> 0x00` or `0xFF -> 0x01`) and out-of-order advertisements never suppress a legitimate `(on, dimLevel)` state transition.
 
 ---
 

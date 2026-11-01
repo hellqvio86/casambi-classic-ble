@@ -298,16 +298,21 @@ class TestProtocolGoldenVectors:
         golden_vectors: dict[str, Any],
     ) -> None:
         """Verify advertisement payload parsing against golden vectors."""
-        device = CasambiDevice(address="66:55:44:33:22:11")
-
         for beacon in golden_vectors["advertisements"]:
+            device = CasambiDevice(address=beacon["expected_address"])
             raw_payload = bytes.fromhex(beacon["raw_hex"])
-            status = device.update_from_advertisement(mfr_data=raw_payload)
+            status = device.update_from_advertisement(
+                mfr_data=raw_payload,
+                company_id=beacon["company_id"],
+            )
             assert status is not None
-            assert status["on"] == beacon["expected_status"]["on"]
-            assert status["dimLevel"] == beacon["expected_status"]["dimLevel"]
-            assert status["level_percent"] == beacon["expected_status"]["level_percent"]
-            assert status["source"] == beacon["expected_status"]["source"]
+            expected = beacon["expected_status"]
+            assert status["on"] == expected["on"]
+            assert status["dimLevel"] == expected["dimLevel"]
+            assert status["level_percent"] == expected["level_percent"]
+            assert status["source"] == expected["source"]
+            assert status["address_byte"] == expected["address_byte"]
+            assert status["unverified"] == expected["unverified"]
 
     def test_status_packet_decoding_matches_golden_vectors(
         self,

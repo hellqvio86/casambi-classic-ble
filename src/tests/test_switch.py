@@ -86,3 +86,32 @@ def test_switch_decoder_unrelated_target_and_reset():
     decoder.reset()
     ev2 = decoder.decode(data=f_press, packet_seq=4)
     assert len(ev2) == 1
+
+
+def test_switch_decoder_counter_wraparound_and_out_of_order():
+    """P1.6: SwitchEventDecoder handles 16-bit origin wraparound, out-of-order frames, and expiry."""
+    from unittest.mock import patch
+
+    decoder = SwitchEventDecoder()
+    unit_id = 3
+    target = (unit_id << 8) | 0x06
+
+    # 1. Origin at 16-bit wraparound boundary: 0xFFFC (PRESS) -> 0xFFFE (RELEASE) -> 0x0000 (PRESS)
+    f_press_max = make_frame(opcode=29, origin=0xFFFC, target=target, payload=b"")
+    f_rel_max = make_frame(opcode=29, origin=0xFFFE, target=target, payload=b"")
+    f_press_wrap = make_frame(opcode=29, origin=0x0000, target=target, payload=b"")
+
+    assert len(decoder.decode(data=f_press_max, packet_seq=1)) == 1
+    assert len(decoder.decode(data=f_rel_max, packet_seq=2)) == 1
+    ev_wrap = decoder.decode(data=f_press_wrap, packet_seq=3)
+    assert len(ev_wrap) == 1
+    assert ev_wrap[0].event == ButtonEventType.PRESS
+
+    # 2. Out-of-order retransmit of 0xFFFC after 0x0000 was already accepted is still suppressed within window
+    assert decoder.decode(data=f_press_max, packet_seq=4) == []
+
+    # 3. After _DEDUP_WINDOW_SECONDS (0.5s), expired origins are pruned and accepted again
+    with patch("casambi_classic_ble._switch.monotonic", return_value=1e9):
+        ev_after_expiry = decoder.decode(data=f_press_max, packet_seq=5)
+        assert len(ev_after_expiry) == 1
+        assert len(decoder._seen_origins) == 1

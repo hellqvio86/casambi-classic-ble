@@ -214,3 +214,85 @@ def test_parse_status_unknown_opcodes_return_empty_dict(mock_device: CasambiDevi
     assert status_03["opcode"] == "0x03"
     assert status_03["id"] == 1
     assert status_03["on"] is True
+
+
+def test_advertisement_unknown_manufacturer_id_ignored(mock_device: CasambiDevice) -> None:
+    """P1.6: Non-Casambi manufacturer IDs (anything other than 0x03C3 / 963) must be ignored."""
+    valid_bytes = bytes.fromhex("ffeeddccbbaa01ff0304")
+    assert mock_device.update_from_advertisement(mfr_data=valid_bytes, company_id=0x004C) is None
+    assert mock_device.update_from_advertisement(mfr_data=valid_bytes, company_id=0xFFFF) is None
+    assert mock_device.update_from_advertisement(mfr_data=valid_bytes, company_id=0) is None
+    assert mock_device.last_state == {}
+
+
+def test_advertisement_cross_network_device_collision_rejected() -> None:
+    """P1.6: An advertisement from a different BLEDevice or relaying another unit's MAC is rejected."""
+    from bleak.backends.device import BLEDevice
+
+    dev_a = CasambiDevice(address="AA:BB:CC:DD:EE:FF", name="Network A Light")
+    ble_other = BLEDevice(address="11:22:33:44:55:66", name="Other Node", details=None)
+    ble_same = BLEDevice(address="AA:BB:CC:DD:EE:FF", name="Network A Light", details=None)
+
+    # 1. Payload has dev_a's MAC, but ble_device is a different peripheral -> rejected
+    payload_for_a = bytes.fromhex("ffeeddccbbaa01ff0304")
+    assert dev_a.update_from_advertisement(mfr_data=payload_for_a, ble_device=ble_other) is None
+
+    # 2. ble_device matches dev_a, but payload contains another unit's MAC -> rejected
+    payload_for_other = bytes.fromhex("66554433221101ff0304")
+    assert dev_a.update_from_advertisement(mfr_data=payload_for_other, ble_device=ble_same) is None
+    assert dev_a._internal_address is None
+
+    # 3. Once dev_a matches its MAC (e.g. forward order AA:BB:CC:DD:EE:FF), _internal_address
+    #    locks to AA:BB:CC:DD:EE:FF and does NOT flip to FF:EE:DD:CC:BB:AA
+    forward_payload_a = bytes.fromhex("aabbccddeeff01800304")
+    res = dev_a.update_from_advertisement(mfr_data=forward_payload_a)
+    assert res is not None
+    assert dev_a._internal_address == "AA:BB:CC:DD:EE:FF"
+
+
+def test_advertisement_counter_wraparound_and_out_of_order_frames() -> None:
+    """P1.6: Rolling counter wraparound and out-of-order frames never suppress valid transitions."""
+    dev = CasambiDevice(address="66:55:44:33:22:11", name="Wraparound Test Light")
+    dispatched: list[dict[str, Any]] = []
+    dev.register_state_callback(callback=lambda st: dispatched.append(st))
+
+    # 1. Counter = 0x7E (status byte = (0x7E << 1) | 1 = 0xFD), ON, 100%
+    frame_c126_on = bytes.fromhex("112233445566fdff0304")
+    st1 = dev.update_from_advertisement(mfr_data=frame_c126_on)
+    assert st1 is not None and st1["on"] is True
+    assert st1["unverified"]["status_flags"] == 0x7E
+    assert len(dispatched) == 1
+
+    # 2. Counter = 0x7F (status byte = 0xFF), identical ON 100% -> duplicate suppressed
+    frame_c127_on = bytes.fromhex("112233445566ffff0304")
+    st2 = dev.update_from_advertisement(mfr_data=frame_c127_on)
+    assert st2 is not None
+    assert st2["unverified"]["status_flags"] == 0x7F
+    assert len(dispatched) == 1
+
+    # 3. Counter wraps around 0x7F -> 0x00 with state transition to OFF (status byte = 0x00, level 0x00)
+    frame_c0_off = bytes.fromhex("11223344556600000304")
+    st3 = dev.update_from_advertisement(mfr_data=frame_c0_off)
+    assert st3 is not None and st3["on"] is False
+    assert st3["unverified"]["status_flags"] == 0x00
+    assert len(dispatched) == 2
+
+    # 4. Out-of-order frame with older counter (e.g. counter = 0x50, status byte = 0xA1) transitioning ON 50%
+    frame_ooo_on = bytes.fromhex("112233445566a1800304")
+    st4 = dev.update_from_advertisement(mfr_data=frame_ooo_on)
+    assert st4 is not None and st4["on"] is True and st4["level_percent"] == 50
+    assert st4["unverified"]["status_flags"] == 0x50
+    assert len(dispatched) == 3
+
+
+def test_advertisement_all_status_flag_combinations(mock_device: CasambiDevice) -> None:
+    """P1.6: Every possible status byte (0x00..0xFF) isolates bit 0 as 'on' and bits 1..7 as unverified."""
+    prefix = bytes.fromhex("ffeeddccbbaa")
+    for status_byte in range(256):
+        frame = prefix + bytes([status_byte, 0x40, 0xAA, 0xBB])
+        res = mock_device.update_from_advertisement(mfr_data=frame)
+        assert res is not None
+        assert res["on"] is bool(status_byte & 0x01)
+        assert res["unverified"]["raw_status_byte"] == status_byte
+        assert res["unverified"]["status_flags"] == ((status_byte >> 1) & 0x7F)
+        assert res["unverified"]["trailing_hex"] == "aabb"

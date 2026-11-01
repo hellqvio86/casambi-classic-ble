@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.3] - 2026-11-01
+
+### Added
+- **Credential Storage & Logging Safety (P1.5):**
+  - Added `mask_mac(address, is_debug=...)` and exported `mask_mac` and `mask_sensitive_data` from `casambi_classic_ble` and `casambi_classic_ble.utils`.
+  - When `is_debug=True` (or when `logging.DEBUG` is active), full MAC addresses and debug payloads are preserved for troubleshooting; in standard/INFO logging, MAC addresses and sensitive keys are masked.
+  - Added custom `__repr__` on `Key`, `_NetworkSession`, and `ClassicEncryptor` to redact raw AES keys and session tokens from debug representations and tracebacks.
+  - Sanitized `AuthenticationError` and `NetworkUpdateError` error logs in `Network` to avoid leaking raw HTTP response bodies on failure.
+  - Added `src/tests/test_secret_redaction.py` with canary credential and MAC redaction unit tests.
+
 ## [0.8.2] - 2026-11-01
 
 ### Added

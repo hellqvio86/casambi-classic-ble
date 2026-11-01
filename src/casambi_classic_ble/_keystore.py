@@ -31,6 +31,11 @@ class Key:
     name: str
     key: bytes
 
+    def __repr__(self) -> str:
+        return (
+            f"Key(id={self.id}, type={self.type}, role={self.role}, name={self.name!r}, key=b'***')"
+        )
+
 
 class KeyStore:
     def __init__(self, cache: Cache) -> None:

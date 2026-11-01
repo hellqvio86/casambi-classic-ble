@@ -23,6 +23,9 @@ class ClassicEncryptor:
         self._sig_len = sig_len
         self._logger = logging.getLogger(__name__)
 
+    def __repr__(self) -> str:
+        return f"ClassicEncryptor(sig_len={self._sig_len})"
+
     def digest(self, packet: bytes, connhash: bytes) -> bytes:
         # We leave handling the auth level to the caller and expect the packet to start with the signature.
         if len(connhash) != 8:

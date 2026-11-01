@@ -6,7 +6,7 @@ from .io import (
     ensure_secure_directory,
     validate_safe_path,
 )
-from .mask import DEFAULT_SENSITIVE_KEYS, mask_sensitive_data
+from .mask import DEFAULT_SENSITIVE_KEYS, mask_mac, mask_sensitive_data
 from .permissions import (
     POSIX_DIR_PERMISSIONS,
     POSIX_FILE_PERMISSIONS,
@@ -24,6 +24,7 @@ __all__ = [
     "atomic_write_file",
     "ensure_secure_directory",
     "is_posix",
+    "mask_mac",
     "mask_sensitive_data",
     "secure_chmod",
     "set_secure_dir_permissions",

@@ -59,6 +59,12 @@ class _NetworkSession:
     def expired(self) -> bool:
         return datetime.now(UTC) > self.expires
 
+    def __repr__(self) -> str:
+        return (
+            f"_NetworkSession(session='***', network={self.network!r}, "
+            f"manager={self.manager}, keyID={self.keyID}, expires={self.expires!r}, role={self.role})"
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "session": self.session,
@@ -450,7 +456,7 @@ class Network:
             self._logger.info("Login successful.")
             await self._save_session()
         else:
-            raise AuthenticationError(f"Login failed: {res.status_code}\n{res.text}")
+            raise AuthenticationError(f"Login failed with status {res.status_code}")
 
     async def logIn(self, *args: Any, **kwargs: Any) -> None:
         """Deprecated alias for log_in."""
@@ -512,7 +518,7 @@ class Network:
                     await self._cache.invalidate_cache()
 
                 if res.status_code != httpx.codes.OK:
-                    self._logger.error(f"Update failed: {res.status_code}\n{res.text}")
+                    self._logger.error("Update failed with status %d", res.status_code)
                     raise NetworkUpdateError("Could not update network!")
 
                 self._logger.debug(f"Network: {res.text}")

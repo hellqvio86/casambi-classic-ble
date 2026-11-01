@@ -1,7 +1,5 @@
 import json
-import pickle
 from datetime import UTC, datetime, timedelta
-from enum import Enum
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -24,11 +22,6 @@ from casambi_classic_ble.exceptions import (
     NetworkOnlineUpdateNeededError,
 )
 from casambi_classic_ble.utils import is_posix
-
-
-class _ForeignControlType(Enum):
-    DIMMER = 0
-    RGB = 2
 
 
 @pytest.fixture
@@ -307,86 +300,149 @@ async def test_network_update_and_fetch_unit_info(mock_cache):
     assert await net.disconnect() is None
 
 
+class ExploitBomb:
+    def __init__(self) -> None:
+        raise RuntimeError("EXPLOIT TRIGGERED: Arbitrary code execution via pickle")
+
+
+class ExploitPayload:
+    def __reduce__(self) -> tuple[type[ExploitBomb], tuple[()]]:
+        return (ExploitBomb, ())
+
+
 @pytest.mark.asyncio
-async def test_load_type_cache_normalization(mock_cache):
-    from casambi_classic_ble._unit import UnitControl, UnitControlType, UnitType
+async def test_legacy_types_pickle_rejected_safely(mock_cache):
+    """Legacy types pickle cache must NEVER be deserialized and must fail closed."""
+    import pickle
 
-    foreign_ctrl = UnitControl(
-        type=_ForeignControlType.DIMMER,  # type: ignore[arg-type]
-        offset=2,
-        length=8,
-        default=0,
-        readonly=False,
-        min=0,
-        max=100,
-    )
-    foreign_type = UnitType(
-        id=859,
-        model="TestModel",
-        manufacturer="TestMfr",
-        mode="Default",
-        stateLength=2,
-        controls=[foreign_ctrl],
-    )
-
-    types_data = {859: (foreign_type, datetime.now(UTC) + timedelta(days=7))}
     async with mock_cache as p:
-        await (p / LEGACY_TYPES_CACHE_FILE).write_bytes(pickle.dumps(types_data))
+        await (p / LEGACY_TYPES_CACHE_FILE).write_bytes(pickle.dumps(ExploitPayload()))
 
     net = Network(
         uuid="00112233-4455-6677-8899-aabbccddeeff",
         httpClient=AsyncMock(),
         cache=mock_cache,
     )
-    with pytest.deprecated_call():
+
+    with pytest.warns(UserWarning, match="pickle support was removed in v0.6.0 for security"):
         await net._loadTypeCache()
+
+    assert net._unitTypes == {}
+    async with mock_cache as p:
+        assert not await (p / TYPES_CACHE_FILE).exists()
+
+
+@pytest.mark.asyncio
+async def test_legacy_session_pickle_rejected_safely(mock_cache):
+    """Legacy session pickle cache must NEVER be deserialized and must fail closed."""
+    import pickle
+
+    async with mock_cache as p:
+        await (p / LEGACY_SESSION_CACHE_FILE).write_bytes(pickle.dumps(ExploitPayload()))
+
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+
+    with pytest.warns(UserWarning, match="pickle support was removed in v0.6.0 for security"):
+        await net._loadSession()
+
+    assert net._session is None
+    async with mock_cache as p:
+        assert not await (p / SESSION_CACHE_FILE).exists()
+
+
+@pytest.mark.asyncio
+async def test_load_type_cache_from_json(mock_cache):
+    """Test loading and normalizing unit types from JSON cache."""
+    from casambi_classic_ble._unit import UnitControlType
+
+    types_json_data = {
+        "859": {
+            "expires": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+            "unit_type": {
+                "id": 859,
+                "model": "TestModel",
+                "manufacturer": "TestMfr",
+                "mode": "Default",
+                "stateLength": 2,
+                "controls": [
+                    {
+                        "type": 0,
+                        "offset": 2,
+                        "length": 8,
+                        "default": 0,
+                        "readonly": False,
+                        "min": 0,
+                        "max": 100,
+                    }
+                ],
+            },
+        }
+    }
+    async with mock_cache as p:
+        await (p / TYPES_CACHE_FILE).write_text(json.dumps(types_json_data))
+
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+    await net._loadTypeCache()
 
     loaded_type, _ = net._unitTypes[859]
     assert loaded_type is not None
     assert loaded_type.controls[0].type == UnitControlType.DIMMER
     assert isinstance(loaded_type.controls[0].type, UnitControlType)
 
-    # Verify migration: JSON file created, legacy pickle removed
-    async with mock_cache as p:
-        assert await (p / TYPES_CACHE_FILE).exists()
-        assert not await (p / LEGACY_TYPES_CACHE_FILE).exists()
-
 
 @pytest.mark.asyncio
-async def test_legacy_session_pickle_migration(mock_cache):
-    async with mock_cache as p:
-        sess = _NetworkSession(
-            session="token-migration-123",
-            network="net-migration",
-            manager=True,
-            keyID=2,
-            expires=datetime.now(UTC) + timedelta(hours=2),
-            role=3,
-        )
-        await (p / LEGACY_SESSION_CACHE_FILE).write_bytes(pickle.dumps(sess))
-
+async def test_network_json_cache_validation_failures(mock_cache):
+    """Corrupted or invalid JSON caches must fail gracefully without crash."""
     net = Network(
         uuid="00112233-4455-6677-8899-aabbccddeeff",
         httpClient=AsyncMock(),
         cache=mock_cache,
     )
 
-    with pytest.deprecated_call():
-        await net._loadSession()
-
-    assert net._session is not None
-    assert net._session.session == "token-migration-123"
-    assert net._session.network == "net-migration"
-    assert net._session.keyID == 2
-
-    # Assert migrated to JSON and old pickle unlinked
+    # 1. Invalid session JSON (not a dict)
     async with mock_cache as p:
-        assert await (p / SESSION_CACHE_FILE).exists()
-        assert not await (p / LEGACY_SESSION_CACHE_FILE).exists()
-        # Verify JSON content
-        raw = await (p / SESSION_CACHE_FILE).read_text()
-        data = json.loads(raw)
-        assert data["session"] == "token-migration-123"
+        await (p / SESSION_CACHE_FILE).write_text('["not a dict"]')
+    await net._loadSession()
+    assert net._session is None
+
+    # 2. Session JSON missing required fields
+    async with mock_cache as p:
+        await (p / SESSION_CACHE_FILE).write_text('{"missing": "fields"}')
+    await net._loadSession()
+    assert net._session is None
+
+    # 3. Invalid types JSON (not a dict)
+    async with mock_cache as p:
+        await (p / TYPES_CACHE_FILE).write_text('["not a dict"]')
+    await net._loadTypeCache()
+    assert net._unitTypes == {}
+
+    # 4. Types JSON with invalid controls
+    async with mock_cache as p:
+        bad_types = {
+            "123": {
+                "expires": datetime.now(UTC).isoformat(),
+                "unit_type": {
+                    "id": 123,
+                    "model": "Bad",
+                    "manufacturer": "Bad",
+                    "mode": "M",
+                    "stateLength": 1,
+                    "controls": "not a list",
+                },
+            }
+        }
+        await (p / TYPES_CACHE_FILE).write_text(json.dumps(bad_types))
+    await net._loadTypeCache()
+    assert net._unitTypes == {}
 
 
 @pytest.mark.asyncio

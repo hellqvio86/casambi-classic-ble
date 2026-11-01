@@ -1,6 +1,12 @@
 # Changelog
 
-## [0.5.2] - 2026-11-01
+## [0.6.0] - 2026-11-01
+
+### Breaking Changes
+- **Removed Insecure Pickle Deserialization (P0.1):**
+  - Removed `import pickle` and all `pickle.loads()` calls from `KeyStore` and `Network` cache loading.
+  - Legacy pickle caches (`keys.pck`, `session.pck`, `types.pck`) are no longer unpickled or migrated automatically; they are safely ignored with a warning requesting re-authentication to prevent arbitrary code execution vulnerabilities.
+  - Enforced strict schema validation when deserializing JSON cache files (`casambi_lookup.json`, `casambi_session.json`, `casambi_types.json`), requiring exact types and 16-byte cryptographic key lengths to prevent deserialization vulnerabilities and corrupted cache poisoning.
 
 ### Fixed
 - **Disconnect Callback State Ordering (Eager Reconnect Fix):**

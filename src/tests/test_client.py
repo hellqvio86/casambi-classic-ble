@@ -328,11 +328,15 @@ async def test_process_callbacks_cancellation_and_casambi_connect_cancel(mock_ne
     ],
 )
 def test_classic_established_notify_truncated_frames_do_not_raise(
-    mock_classic_client, malformed_frame
+    mock_classic_client, malformed_frame, caplog
 ):
-    """T-009: Verify truncated frames never raise IndexError and do not invoke dataCallback."""
-    mock_classic_client._establishedNotifyCallback(MagicMock(), malformed_frame)
+    """T-009: Verify truncated frames never raise IndexError, log ERROR containing packet, and do not invoke dataCallback."""
+    with caplog.at_level(logging.ERROR):
+        mock_classic_client._establishedNotifyCallback(MagicMock(), malformed_frame)
     mock_classic_client._dataCallback.assert_not_called()
+    assert any("Malformed packet" in rec.getMessage() for rec in caplog.records)
+    if malformed_frame:
+        assert any(malformed_frame.hex() in rec.getMessage() for rec in caplog.records)
 
 
 def test_classic_established_notify_multi_unit_with_extras(mock_classic_client):

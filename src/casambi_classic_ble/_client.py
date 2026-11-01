@@ -384,8 +384,10 @@ class CasambiClientClassic(CasambiClient):
                     self._network.protocolVersion,
                 )
 
+            self._checkProtocolVersion(protocolVersion)
+
             self._logger.debug(
-                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash {self._connhash.hex()}"
+                f"Parsed mtu {self._mtu}, unit {self._unit}, flags {self._flags}, connhash set (8 bytes)"
             )
 
             self._logger.debug("Starting notify")
@@ -423,7 +425,7 @@ class CasambiClientClassic(CasambiClient):
         self._logger.debug(f"Incoming data: {data.hex()}")
 
         if len(data) < 1:
-            self._logger.error("Received empty notification frame. Ignoring.")
+            self._logger.error("Malformed packet: received empty notification frame. Ignoring.")
             return
 
         unitId = data[0]
@@ -440,7 +442,12 @@ class CasambiClientClassic(CasambiClient):
             pos = 0
             while pos < len(data):
                 if pos + 2 > len(data):
-                    self._logger.error(f"Failed to find header at {pos}. Abort.")
+                    self._logger.error(
+                        "Malformed packet: incomplete header at position %d (frame length %d, packet=%s). Abort.",
+                        pos,
+                        len(data),
+                        data.hex(),
+                    )
                     break
 
                 flags = data[pos + 1]
@@ -457,20 +464,32 @@ class CasambiClientClassic(CasambiClient):
 
                 if extra1:
                     if statePos >= len(data):
-                        self._logger.error(f"Truncated frame reading extra1 at pos {pos}. Abort.")
+                        self._logger.error(
+                            "Malformed packet: truncated frame reading extra1 at pos %d (packet=%s). Abort.",
+                            pos,
+                            data.hex(),
+                        )
                         break
                     extra1Val = data[statePos]
                     statePos += 1
                 if extra2:
                     if statePos >= len(data):
-                        self._logger.error(f"Truncated frame reading extra2 at pos {pos}. Abort.")
+                        self._logger.error(
+                            "Malformed packet: truncated frame reading extra2 at pos %d (packet=%s). Abort.",
+                            pos,
+                            data.hex(),
+                        )
                         break
                     extra2Val = data[statePos]
                     statePos += 1
 
                 if statePos + stateLen > len(data):
                     self._logger.error(
-                        f"Failed to find message of length {stateLen + (statePos - pos)} at pos {pos}. Abort."
+                        "Malformed packet: truncated payload of length %d at pos %d (frame length %d, packet=%s). Abort.",
+                        stateLen,
+                        pos,
+                        len(data),
+                        data.hex(),
                     )
                     break
 
@@ -501,7 +520,11 @@ class CasambiClientClassic(CasambiClient):
         else:
             outPacket = b"\x02" + self._visitorEncryptor.digest(outPacket, self._connhash)
 
-        self._logger.debug(f"Packet with header: {outPacket.hex()}")
+        self._logger.debug(
+            "Sending signed packet (%d bytes, auth_level=0x%02x)",
+            len(outPacket),
+            outPacket[0],
+        )
 
         try:
             await self._gattClient.write_gatt_char(CASA_AUTH_CHAR_UUID, outPacket)

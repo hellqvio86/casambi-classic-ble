@@ -98,27 +98,94 @@ Casambi devices broadcast passive BLE manufacturer data using Company Identifier
 
 ---
 
-## 5. Signed Session Protocol (`Casambi` Stack)
+## 5. Cryptographic & Session Protocol Specification (`Casambi` Stack)
 
-When using the full network session controller (`Casambi` and `CasambiClientClassic`), communication uses challenge-response authentication and CMAC-signed frames over GATT:
+When utilizing the full network session controller (`Casambi` and `CasambiClientClassic`), communication uses challenge-response authentication and CMAC-signed frames over GATT. This section formalizes the cryptographic contract, packet layouts, and verification requirements.
 
-### Challenge-Response Handshake
-1. **Challenge Request (`OpCode 0x01`):** Client connects and writes random challenge nonces to the Control characteristic.
-2. **Challenge Response (`OpCode 0x02`):** Node responds via notification with device nonces and the protocol version (Classic supported range: `1`–`9`).
-3. **Session Key Derivation:** The network visitor or manager key from `KeyStore` is combined with the exchanged nonces using AES-128 / CMAC to derive the active session encryption and signing keys.
+### 5.1 Protocol Summary & Evidence Matrix
 
-### Signed Opcode Invocation Packet Format
-Packets sent to the GATT Control characteristic in signed session mode follow this layout:
+| Protocol Element | Specification / Invariant | Role / Scope | Evidence | Tested Models / Firmware |
+|---|---|---|---|---|
+| **Key Selection** | 16-byte AES-128 key from network key store | Visitor (`role = 2`) or Manager (`role = 3`) | `captured` | Vadsbo LD220WCM, Classic FW 26.x |
+| **Password Hashing** | 16-byte MD5 digest of UTF-8 password | Unauthenticated GATT opcode `0x07` | `captured` | Classic Nodes (LD220WCM) |
+| **Challenge Request** | OpCode `0x01` + 16-byte client random nonce | Session handshake initiation | `captured` | Classic FW 26.x |
+| **Challenge Response** | OpCode `0x02` + 16-byte node nonce + version (1B) | Handshake confirmation & protocol negotiation | `captured` | Classic FW 26.x |
+| **Protocol Version** | Integer `1`–`9` accepted; `>= 10` rejected | Classic firmware compatibility boundary | `captured` | Classic FW 26.x |
+| **Connection Hash (`connhash`)** | Exactly 8 bytes derived from nonce exchange | Per-connection authentication context | `derived` | Classic Session Stack |
+| **Cipher & Mode** | AES-128 in CMAC mode (RFC 4493 / NIST SP 800-38B) | Frame authentication & integrity | `derived` | Classic Session Stack |
+| **CMAC Concatenation** | `CMAC(key, connhash [8B] + packet [NB])` | Input data order | `derived` | Classic Session Stack |
+| **Signature Placement & Length** | Visitor: 4-byte prefix (`CMAC[:4]`); Manager: 16-byte prefix (`CMAC[:16]`) | Prepended to signed payload | `captured` | Classic FW 26.x |
+| **Signature Comparison** | Constant-time comparison (`hmac.compare_digest`) | Side-channel timing defense | `derived` | Classic Session Stack |
+| **Sequence Counter** | 1-byte counter (`0x00`–`0xFF`), increments per signed frame | Session anti-replay defense | `derived` | Classic Session Stack |
+| **Session Teardown** | Sequence reset, session key clearance on disconnect | Session lifecycle management | `derived` | Classic Session Stack |
+
+### 5.2 Key Derivation & Roles
+
+- **Visitor Key (`role = 2`):** Used for standard control (level, scenes, unit state). Signatures are truncated to **4 bytes** (`sig_len = 4`).
+- **Manager Key (`role = 3`):** Used for administrative mesh configuration. Signatures use full **16 bytes** (`sig_len = 16`).
+- **Invariants:**
+  - AES keys must be exactly 16 bytes (`len(key) == 16`). Invalid key lengths are rejected in `ClassicEncryptor.__init__`.
+  - Signature length `sig_len` must be strictly `4` or `16`. Any other value raises a domain `ValueError`.
+
+### 5.3 Challenge-Response Handshake
+
 ```
-+------------------+---------------+--------------+---------------------+-------------------+
-| Target Code (2B) | Opcode (1B)   | Seq No (1B)  | Payload (N Bytes)   | CMAC Signature(4B)|
-+------------------+---------------+--------------+---------------------+-------------------+
+Client                                                  Node
+  |                                                       |
+  |--- OpCode 0x01 [Client Nonce (16B)] ----------------->| (Challenge Request)
+  |<-- OpCode 0x02 [Node Nonce (16B)] [Version (1B)] -----| (Challenge Response)
+  |                                                       |
 ```
-- **Target Code (2B LE):** Encodes target unit ID, group ID, or broadcast (`0xFFFF`).
-- **Opcode (1B):** Operation command code (e.g. `SetLevel`, `SetColorXY`, etc.).
-- **Seq No (1B):** Monotonically incrementing per-session sequence counter.
-- **Payload:** Command-specific byte parameters (e.g. brightness level, xy coordinates).
-- **CMAC Signature (4B):** Truncated 4-byte CMAC calculated over header and payload with the session key to prevent spoofing.
+
+1. **Challenge Request (`OpCode 0x01`):** Client generates a 16-byte cryptographically secure random nonce (`os.urandom(16)`) and writes it to the GATT Control characteristic.
+2. **Challenge Response (`OpCode 0x02`):** Node responds via notification with its 16-byte nonce and a 1-byte protocol version number.
+   - If `version < 1` or `version > 9`, connection is aborted immediately (Classic version mismatch / Evolution rejection).
+3. **Connection Hash (`connhash`):** Derived from the nonce exchange. Must be exactly 8 bytes.
+
+### 5.4 Signed Frame Construction & Verification
+
+Packets sent to the GATT Control characteristic in signed session mode follow this byte structure:
+
+```
++-----------------------------------+--------------------+--------------+-------------+---------------------+
+| Truncated CMAC Signature (4B/16B) | Target Code (2B LE)| Opcode (1B)  | Seq No (1B) | Payload (N Bytes)   |
++-----------------------------------+--------------------+--------------+-------------+---------------------+
+```
+
+- **Digest Calculation:**
+  ```python
+  cmac = CMAC(AES(key))
+  cmac.update(connhash + packet)
+  signature = cmac.finalize()[:sig_len]
+  signed_packet = signature + packet
+  ```
+- **Verification:**
+  1. Verify packet length is at least `sig_len` bytes.
+  2. Verify `connhash` is exactly 8 bytes.
+  3. Recompute `expected_sig = CMAC(key).update(connhash + packet[sig_len:]).finalize()[:sig_len]`.
+  4. Compare extracted `packet[:sig_len]` with `expected_sig` using constant-time `hmac.compare_digest`.
+  5. If verification fails or packet is malformed, log an `ERROR` without disclosing raw key material or secret digests.
+
+### 5.5 Sequence Counters & Anti-Replay Rules
+
+- Each signed packet includes a 1-byte sequence counter (`Seq No`).
+- Counter increments monotonically per transmitted frame (`(seq + 1) % 256`).
+- On session termination or BLE disconnect, sequence counters are discarded. Re-authenticated sessions negotiate fresh nonces and reinitialize counters.
+
+### 5.6 Authenticated vs Unauthenticated Packet Types
+
+1. **Unauthenticated GATT Commands:**
+   - Direct writes to Control Characteristic via `CasambiDevice`:
+     - `0x01` / `0x02` (Turn On / Off legacy)
+     - `0x03` (Set Level)
+     - `0x04` (Set Color Temperature)
+     - `0x05` (Set RGB)
+     - `0x07` (Password Authentication MD5)
+     - `0x0F` / `0x14` (Get State)
+     - `0x81` / `0x82` (Turn On / Off by 6-byte address)
+2. **Authenticated Session Packets (`CasambiClientClassic`):**
+   - Packets wrapped in CMAC signed envelope with target code and sequence number.
+   - Required for multi-unit networks, mesh broadcast forwarding, and state synchronization.
 
 ---
 

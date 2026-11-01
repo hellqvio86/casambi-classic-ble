@@ -273,14 +273,21 @@ class CasambiDevice:
             # Discover services to determine which characteristics to use
             try:
                 services = self.client.services
-                if CasambiUUIDs.SERVICE_V2.lower() in [s.uuid.lower() for s in services]:
+                service_uuids = [s.uuid.lower() for s in services]
+                if CasambiUUIDs.SERVICE_V2.lower() in service_uuids:
                     logger.info("Using protocol variant 2 (FE4D)")
                     self._control_uuid = CasambiUUIDs.CONTROL_V2
                     self._status_uuid = CasambiUUIDs.STATUS_V2
-                else:
+                elif CasambiUUIDs.SERVICE_V1.lower() in service_uuids:
                     logger.info("Using protocol variant 1 (FE3D)")
                     self._control_uuid = CasambiUUIDs.CONTROL_V1
                     self._status_uuid = CasambiUUIDs.STATUS_V1
+                else:
+                    raise CasambiDeviceError(
+                        f"Device {self.address} does not support Casambi Classic services "
+                        f"({CasambiUUIDs.SERVICE_V2} or {CasambiUUIDs.SERVICE_V1}). "
+                        "Evolution firmware or non-Casambi devices are not supported."
+                    )
 
                 self._is_connected = True
                 dev_addr = self._ble_device.address if self._ble_device else self.address
@@ -288,6 +295,12 @@ class CasambiDevice:
                 logger.debug("Resolved device address: %s", dev_addr)
 
                 await self.client.start_notify(self._status_uuid, self._notification_handler)
+            except CasambiDeviceError:
+                self._is_connected = False
+                if self.client:
+                    with contextlib.suppress(Exception):
+                        await self.client.disconnect()
+                raise
             except Exception as err:
                 logger.error(f"Failed to resolve services or start notifications: {err}")
                 self._is_connected = False
@@ -296,7 +309,7 @@ class CasambiDevice:
                         await self.client.disconnect()
                 raise CasambiConnectionError(f"Failed to configure connection: {err}") from err
 
-        except (CasambiDeviceNotFoundError, CasambiConnectionError):
+        except (CasambiDeviceNotFoundError, CasambiConnectionError, CasambiDeviceError):
             self._is_connected = False
             raise
         except asyncio.CancelledError:
@@ -467,6 +480,12 @@ class CasambiDevice:
         Enriched to match Casambi Cloud API structure.
         """
         if not isinstance(data, (bytes, bytearray)) or len(data) < 3:
+            raw_hex = data.hex() if isinstance(data, (bytes, bytearray)) else repr(data)
+            logger.error(
+                "Malformed packet: status notification frame length %d is too short (expected >= 3 bytes, packet=%s).",
+                len(data) if isinstance(data, (bytes, bytearray)) else 0,
+                raw_hex,
+            )
             return {}
 
         opcode = data[0]

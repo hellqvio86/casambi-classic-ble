@@ -6,8 +6,9 @@ from typing import Any
 import aiohttp
 
 from ..exceptions import CasambiCloudApiException
+from ..utils import DEFAULT_SENSITIVE_KEYS, mask_sensitive_data
 from .api import CasambiCloudAPI
-from .websocket import DEFAULT_SENSITIVE_KEYS, CasambiCloudWebsocket, mask_sensitive_data
+from .websocket import CasambiCloudWebsocket
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from casambi_classic_ble._encryption import ClassicEncryptor
+from casambi_classic_ble.cloud import mask_sensitive_data as cloud_mask_sensitive_data
 from casambi_classic_ble.cloud.api import CasambiCloudAPI
-from casambi_classic_ble.cloud.websocket import CasambiCloudWebsocket, mask_sensitive_data
+from casambi_classic_ble.cloud.websocket import CasambiCloudWebsocket
 from casambi_classic_ble.device import CasambiDevice
+from casambi_classic_ble.utils import DEFAULT_SENSITIVE_KEYS, mask_sensitive_data
 
 
 @pytest.mark.asyncio
@@ -141,6 +143,9 @@ async def test_websocket_open_logs_data_with_masked_sensitive_keys(
 
 def test_mask_sensitive_data() -> None:
     """Verify mask_sensitive_data masks secrets in dicts, nested dicts, and lists."""
+    assert cloud_mask_sensitive_data is mask_sensitive_data
+    assert "token" in DEFAULT_SENSITIVE_KEYS
+
     # Primitives pass through
     assert mask_sensitive_data(data=42) == 42
     assert mask_sensitive_data(data="hello") == "hello"

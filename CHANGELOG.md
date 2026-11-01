@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.5] - 2026-11-01
+
+### Added
+- **Public Cache Inspection & Session Cleanup API (P2.1):**
+  - Added `Casambi.has_cached_network`, `Casambi.check_cached_network`, `Casambi.async_has_cached_network`, `Casambi.clear_cached_session`, and `Casambi.async_clear_cached_session` (backed by `Cache.has_cached_network` and `Cache.clear_cached_session`) so downstream integrations never need to inspect private cache filenames (`networkid` / `casambi_network_id.txt` / `casambi_session.json`).
+  - Normalized Bluetooth MAC addresses in `Casambi.invalidate_cache` (`AA:BB:CC:DD:EE:FF` -> `aabbccddeeff`) and deduplicated repeated callback registrations on `Casambi`.
+- **Dependency Bounds, Hardware Marker & Built Distribution Verification (P1.9, P2.4):**
+  - Bounded runtime dependency ranges in `pyproject.toml`.
+  - Added `MANIFEST.in` and CI distribution checks verifying `sdist` and `wheel` contents (`docs/protocol.md`, `CHANGELOG.md`, `golden_vectors.json`, `py.typed`) and clean installation of the built wheel.
+  - Added opt-in `@pytest.mark.hardware` pytest marker deselected by default (`-m 'not hardware'`).
+- **Operational Limitations & Safe Troubleshooting Documentation (P2.3):**
+  - Documented reverse-engineered protocol scope, tested hardware/firmware models, single-GATT connection limitations, offline cache requirements, and safe log redaction guidelines in `README.md`.
+
 ## [0.8.4] - 2026-11-01
 
 ### Added

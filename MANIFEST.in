@@ -1,0 +1,8 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include docs/protocol.md
+recursive-include src/casambi_classic_ble *.py py.typed
+recursive-include src/tests *.py *.json
+global-exclude *.pyc __pycache__ .env *.yaml *.yml *.pcap *.pcapng *.btsnoop
+prune casambi-classic-ble-store

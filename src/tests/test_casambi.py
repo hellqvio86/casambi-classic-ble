@@ -228,7 +228,10 @@ async def test_casambi_callbacks_and_data_handling(mock_casambi, dummy_unit):
         disconnect_events.append(True)
 
     mock_casambi.register_unit_changed_handler(handler=on_unit_changed)
+    mock_casambi.register_unit_changed_handler(handler=on_unit_changed)
     mock_casambi.register_switch_event_handler(handler=on_switch_event)
+    mock_casambi.register_switch_event_handler(handler=on_switch_event)
+    mock_casambi.register_disconnect_callback(callback=on_disconnect)
     mock_casambi.register_disconnect_callback(callback=on_disconnect)
 
     # Data callback: UnitState
@@ -303,6 +306,40 @@ async def test_casambi_disconnect_and_cache(mock_casambi, tmp_path):
     # Test cache invalidation
     casa = Casambi(cache_path=tmp_path)
     await casa.invalidate_cache(uuid="aabbccddeeff")
+    await casa.invalidate_cache(address="AA:BB:CC:DD:EE:FF")
+
+    # Test public cache inspection and session cleanup helpers
+    assert not await casa.has_cached_network(address="AA:BB:CC:DD:EE:FF")
+    assert not Casambi.check_cached_network(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+    assert not await Casambi.async_has_cached_network(
+        cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF"
+    )
+
+    net_dir = tmp_path / "aabbccddeeff"
+    net_dir.mkdir(parents=True, exist_ok=True)
+    (net_dir / "casambi_network_id.txt").write_text("net-123", encoding="utf-8")
+    (net_dir / "casambi_session.json").write_text('{"session": "s1"}', encoding="utf-8")
+
+    assert await casa.has_cached_network(address="AA:BB:CC:DD:EE:FF")
+    assert Casambi.check_cached_network(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+    assert await Casambi.async_has_cached_network(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+
+    mock_net = MagicMock()
+    mock_net._uuid = "aabbccddeeff"
+    mock_net._session = "active-session"
+    casa._casaNetwork = mock_net
+
+    await casa.clear_cached_session(address="AA:BB:CC:DD:EE:FF")
+    assert not (net_dir / "casambi_session.json").exists()
+    assert mock_net._session is None
+
+    (net_dir / "casambi_session.json").write_text('{"session": "s2"}', encoding="utf-8")
+    await Casambi.async_clear_cached_session(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+    assert not (net_dir / "casambi_session.json").exists()
+    assert await casa.has_cached_network(address="AA:BB:CC:DD:EE:FF")
+
+    await casa.invalidate_cache(uuid="AA:BB:CC:DD:EE:FF")
+    assert not await casa.has_cached_network(address="AA:BB:CC:DD:EE:FF")
 
     with pytest.deprecated_call():
         casa_deprecated = Casambi(cachePath=tmp_path)

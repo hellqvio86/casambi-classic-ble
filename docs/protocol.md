@@ -28,11 +28,11 @@ Casambi devices expose GATT services for control and status notifications. Class
 
 ## 2. Command Frame Format & Opcode Table
 
-Packets written to the Control Characteristic begin with a 1-byte command opcode followed by an unencrypted or XOR-encrypted payload depending on network configuration:
+Packets written to the Control Characteristic begin with a 1-byte command opcode followed by an unencrypted payload:
 
 ```
 +---------------+-----------------------------------------------+
-| Opcode (1B)   | Payload (N Bytes, little-endian, XOR optional)|
+| Opcode (1B)   | Payload (N Bytes, little-endian)              |
 +---------------+-----------------------------------------------+
 ```
 

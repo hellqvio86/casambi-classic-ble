@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7] - 2026-11-01
+
+### Security & Hygiene
+- **JSON Cache Migration & Backward Compatibility (S-001):** Migrated network session (`casambi_session.json`), unit types (`casambi_types.json`), and network ID (`casambi_network_id.txt`) from pickle to JSON. Automatically migrates legacy pickle files (`session.pck`, `types.pck`, `networkid`) on load with a `DeprecationWarning`, writes JSON with `0o600` permissions, and deletes legacy pickle files. Enforced `0o700` permissions on cache directories.
+- **Sensitive Logging Sanitization (S-002):** Sanitized protocol logging across `device.py`, `_encryption.py`, `_client.py`, and `cloud/`. Raw notification frames, status reads, and packet payloads now log at `DEBUG` or behind `CASAMBI_TRACE`; `ClassicEncryptor.verify` never logs computed MAC on verification failure; and cloud session IDs are excluded from logs.
+- **Dead Code Elimination & Password Validation (S-006):** Removed unreachable `self._session_key` field and dead XOR payload branch from `CasambiDevice`. Added validation to `CasambiDevice.authenticate(password=...)` requiring a non-empty password (raising `CasambiDeviceError`), and documented that write completion over GATT acknowledges transmission but is not explicit proof of authentication success.
+
 ## [0.3.6] - 2026-11-01
 
 ### Fixed

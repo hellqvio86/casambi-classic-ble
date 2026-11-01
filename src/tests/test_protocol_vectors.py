@@ -216,32 +216,6 @@ class TestProtocolGoldenVectors:
             written_packets[-1].hex() == golden_vectors["opcodes"]["GET_NETWORK_INFO"]["frame_hex"]
         )
 
-    @pytest.mark.asyncio
-    async def test_session_key_xor_matches_golden_vector(
-        self,
-        mock_bleak_client: AsyncMock,
-        golden_vectors: dict[str, Any],
-    ) -> None:
-        """Verify protected mesh XOR payload encryption against golden vector."""
-        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF", client=mock_bleak_client)
-        device.is_connected = True
-
-        xor_vector = golden_vectors["protected_mesh_xor"]
-        device._session_key = bytes.fromhex(xor_vector["session_key_hex"])
-
-        written_packets: list[bytes] = []
-
-        async def capture_write(char_uuid: str, data: bytes, *, response: bool = True) -> None:
-            written_packets.append(data)
-
-        mock_bleak_client.write_gatt_char = AsyncMock(side_effect=capture_write)
-
-        await device._send_command(
-            command=xor_vector["opcode"],
-            payload=bytes.fromhex(xor_vector["plaintext_payload_hex"]),
-        )
-        assert written_packets[-1].hex() == xor_vector["final_frame_hex"]
-
     def test_advertisement_beacons_match_golden_vectors(
         self,
         golden_vectors: dict[str, Any],

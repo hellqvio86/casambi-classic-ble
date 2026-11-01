@@ -9,6 +9,10 @@ import pytest
 
 from casambi_classic_ble._cache import Cache
 from casambi_classic_ble._network import (
+    LEGACY_NETWORK_ID_CACHE_FILE,
+    LEGACY_SESSION_CACHE_FILE,
+    LEGACY_TYPES_CACHE_FILE,
+    NETWORK_ID_CACHE_FILE,
     SESSION_CACHE_FILE,
     TYPES_CACHE_FILE,
     Network,
@@ -55,7 +59,7 @@ def test_network_session_expired():
 
 @pytest.mark.asyncio
 async def test_network_load_caches(mock_cache):
-    # Pre-populate session and type cache in tmp_path
+    # Pre-populate session and type cache in tmp_path using JSON format
     async with mock_cache as p:
         sess = _NetworkSession(
             session="abc",
@@ -64,8 +68,8 @@ async def test_network_load_caches(mock_cache):
             keyID=1,
             expires=datetime.now(UTC) + timedelta(hours=1),
         )
-        await (p / SESSION_CACHE_FILE).write_bytes(pickle.dumps(sess))
-        await (p / TYPES_CACHE_FILE).write_bytes(pickle.dumps({}))
+        await (p / SESSION_CACHE_FILE).write_text(json.dumps(sess.to_dict()))
+        await (p / TYPES_CACHE_FILE).write_text(json.dumps({}))
 
     client = AsyncMock(spec=httpx.AsyncClient)
     net = Network(
@@ -97,7 +101,7 @@ async def test_network_get_network_id_success(mock_cache):
 
     # Verify cached to disk
     async with mock_cache as p:
-        cached_id = await (p / "networkid").read_text()
+        cached_id = await (p / NETWORK_ID_CACHE_FILE).read_text()
         assert cached_id == "net-id-123"
 
     # Second call with forceOffline=True uses cache
@@ -318,16 +322,114 @@ async def test_load_type_cache_normalization(mock_cache):
 
     types_data = {859: (foreign_type, datetime.now(UTC) + timedelta(days=7))}
     async with mock_cache as p:
-        await (p / TYPES_CACHE_FILE).write_bytes(pickle.dumps(types_data))
+        await (p / LEGACY_TYPES_CACHE_FILE).write_bytes(pickle.dumps(types_data))
 
     net = Network(
         uuid="00112233-4455-6677-8899-aabbccddeeff",
         httpClient=AsyncMock(),
         cache=mock_cache,
     )
-    await net._loadTypeCache()
+    with pytest.deprecated_call():
+        await net._loadTypeCache()
 
     loaded_type, _ = net._unitTypes[859]
     assert loaded_type is not None
     assert loaded_type.controls[0].type == UnitControlType.DIMMER
     assert isinstance(loaded_type.controls[0].type, UnitControlType)
+
+    # Verify migration: JSON file created, legacy pickle removed
+    async with mock_cache as p:
+        assert await (p / TYPES_CACHE_FILE).exists()
+        assert not await (p / LEGACY_TYPES_CACHE_FILE).exists()
+
+
+@pytest.mark.asyncio
+async def test_legacy_session_pickle_migration(mock_cache):
+    async with mock_cache as p:
+        sess = _NetworkSession(
+            session="token-migration-123",
+            network="net-migration",
+            manager=True,
+            keyID=2,
+            expires=datetime.now(UTC) + timedelta(hours=2),
+            role=3,
+        )
+        await (p / LEGACY_SESSION_CACHE_FILE).write_bytes(pickle.dumps(sess))
+
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+
+    with pytest.deprecated_call():
+        await net._loadSession()
+
+    assert net._session is not None
+    assert net._session.session == "token-migration-123"
+    assert net._session.network == "net-migration"
+    assert net._session.keyID == 2
+
+    # Assert migrated to JSON and old pickle unlinked
+    async with mock_cache as p:
+        assert await (p / SESSION_CACHE_FILE).exists()
+        assert not await (p / LEGACY_SESSION_CACHE_FILE).exists()
+        # Verify JSON content
+        raw = await (p / SESSION_CACHE_FILE).read_text()
+        data = json.loads(raw)
+        assert data["session"] == "token-migration-123"
+
+
+@pytest.mark.asyncio
+async def test_legacy_network_id_migration(mock_cache):
+    async with mock_cache as p:
+        await (p / LEGACY_NETWORK_ID_CACHE_FILE).write_text("migrated-net-id")
+
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+    await net.getNetworkId(forceOffline=True)
+    assert net._id == "migrated-net-id"
+
+    # Assert migrated to new file and legacy unlinked
+    async with mock_cache as p:
+        assert await (p / NETWORK_ID_CACHE_FILE).exists()
+        assert not await (p / LEGACY_NETWORK_ID_CACHE_FILE).exists()
+        assert await (p / NETWORK_ID_CACHE_FILE).read_text() == "migrated-net-id"
+
+
+@pytest.mark.asyncio
+async def test_network_cache_permissions(mock_cache):
+    import os
+    import stat
+
+    sess = _NetworkSession(
+        session="secure-token",
+        network="net-sec",
+        manager=True,
+        keyID=1,
+        expires=datetime.now(UTC) + timedelta(hours=1),
+    )
+    net = Network(
+        uuid="00112233-4455-6677-8899-aabbccddeeff",
+        httpClient=AsyncMock(),
+        cache=mock_cache,
+    )
+    net._session = sess
+    await net._saveSesion()
+    await net._saveTypeCache()
+
+    async with mock_cache as p:
+        # Check directory permissions (0700)
+        dir_stat = os.stat(str(p))
+        assert stat.S_IMODE(dir_stat.st_mode) == 0o700
+
+        # Check session JSON permissions (0600)
+        sess_stat = os.stat(str(p / SESSION_CACHE_FILE))
+        assert stat.S_IMODE(sess_stat.st_mode) == 0o600
+
+        # Check types JSON permissions (0600)
+        types_stat = os.stat(str(p / TYPES_CACHE_FILE))
+        assert stat.S_IMODE(types_stat.st_mode) == 0o600

@@ -69,6 +69,15 @@ class Cache:
             _LOGGER.info("Creating new cache.")
             await self._cachePath.mkdir(mode=0o700)
             await self._cacheVersionFile.write_text(str(CACHE_VERSION))
+            try:
+                os.chmod(str(self._cacheVersionFile), 0o600)
+            except OSError as err:
+                _LOGGER.debug(f"Could not set permissions on {self._cacheVersionFile}: {err}")
+        else:
+            try:
+                os.chmod(str(self._cachePath), 0o700)
+            except OSError as err:
+                _LOGGER.debug(f"Could not set permissions on {self._cachePath}: {err}")
 
     async def __aenter__(self) -> Path:
         await _cacheLock.acquire()
@@ -82,7 +91,11 @@ class Cache:
             cacheDir = Path(self._cachePath / self._uuid)
             if not await cacheDir.exists():
                 _LOGGER.debug("Creating cache entry for id %s", self._uuid)
-                await cacheDir.mkdir()
+                await cacheDir.mkdir(mode=0o700)
+            try:
+                os.chmod(str(cacheDir), 0o700)
+            except OSError as err:
+                _LOGGER.debug(f"Could not set permissions on {cacheDir}: {err}")
 
             _LOGGER.debug("Returning cache path %s for id %s.", cacheDir, self._uuid)
             return cacheDir

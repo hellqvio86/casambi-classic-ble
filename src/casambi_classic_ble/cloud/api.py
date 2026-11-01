@@ -53,7 +53,7 @@ class CasambiCloudAPI:
             if data.get("networks"):
                 self.network_id = next(iter(data["networks"].keys()))
 
-            _LOGGER.debug(f"User session created: {self.session_id}")
+            _LOGGER.debug("User session created")
             return str(self.session_id)
 
     async def create_network_session(self, *, email: str, password: str) -> list[str]:

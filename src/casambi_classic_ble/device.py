@@ -52,7 +52,6 @@ class CasambiDevice:
         self._last_notified_states: dict[Any, tuple[bool, float]] = {}
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
-        self._session_key: bytes | None = None
 
     def set_disconnected_callback(self, *, callback: Callable[[], None]) -> None:
         """Set callback invoked on unexpected disconnection"""
@@ -90,7 +89,7 @@ class CasambiDevice:
             if not self.client:
                 # Use BLEDevice if we have it, otherwise try to find it
                 if not self._ble_device:
-                    logger.info(f"Searching for device {self.address}...")
+                    logger.debug("Searching for device %s...", self.address)
 
                     # We'll do one scan and check multiple conditions for each discovered device
                     # This is much more reliable than multiple sequential find_device calls
@@ -115,11 +114,11 @@ class CasambiDevice:
                         dev_addr = dev.address.upper()
                         # 1. Match address
                         if dev_addr == target_upper:
-                            logger.info(f"Matched target address: {dev_addr}")
+                            logger.debug("Matched target address: %s", dev_addr)
                             found = True
                         # 2. Match reversed address
                         elif target_reversed and dev_addr == target_reversed:
-                            logger.info(f"Matched reversed address: {dev_addr}")
+                            logger.debug("Matched reversed address: %s", dev_addr)
                             found = True
                         # 3. Match Manufacturer Data (Casambi ID 963 = 0x03C3)
                         else:
@@ -128,8 +127,9 @@ class CasambiDevice:
                                 if matches_advertisement_address(
                                     target_address=self.address, mfr_data=mfr_data
                                 ):
-                                    logger.info(
-                                        f"Matched internal ID in Manufacturer Data (Device: {dev_addr})"
+                                    logger.debug(
+                                        "Matched internal ID in Manufacturer Data (Device: %s)",
+                                        dev_addr,
                                     )
                                     found = True
 
@@ -137,13 +137,13 @@ class CasambiDevice:
                             self._ble_device = dev
                             break
                         else:
-                            logger.debug(f"Skipping device {dev_addr} ({dev.name})")
+                            logger.debug("Skipping device %s (%s)", dev_addr, dev.name)
 
                 if not self._ble_device:
-                    logger.error(f"Device {self.address} not found.")
+                    logger.error("Device %s not found.", self.address)
                     return False
 
-                logger.info(f"Connecting to {self._ble_device.address}...")
+                logger.debug("Connecting to %s...", self._ble_device.address)
                 try:
                     from bleak_retry_connector import establish_connection
 
@@ -180,7 +180,8 @@ class CasambiDevice:
 
             self.is_connected = True
             dev_addr = self._ble_device.address if self._ble_device else self.address
-            logger.info(f"Connected and services resolved for {self.name} at {dev_addr}")
+            logger.info("Connected and services resolved for %s", self.name)
+            logger.debug("Resolved device address: %s", dev_addr)
 
             await self.client.start_notify(self._status_uuid, self._notification_handler)
 
@@ -201,9 +202,16 @@ class CasambiDevice:
             return False
 
     async def authenticate(self, *, password: str) -> None:
-        """Authenticate with the network password"""
+        """Authenticate with the network password.
+
+        Note: In the Casambi Classic protocol, authentication is performed by
+        transmitting the MD5-hashed network password opcode to the control characteristic.
+        Successful completion of this write confirms that the BLE packet was transmitted
+        and acknowledged by the GATT server, but the protocol does not return an explicit
+        authentication success or failure response.
+        """
         if not password:
-            return
+            raise CasambiDeviceError("Password required")
 
         if not self.is_connected or not self.client:
             raise CasambiConnectionError("Device not connected")
@@ -213,7 +221,6 @@ class CasambiDevice:
         # False positive: MD5 password hash is mandated by Casambi Classic BLE radio protocol
         # codeql[py/weak-sensitive-data-hashing]
         password_hash = hashlib.md5(password.encode("utf-8")).digest()
-        self._session_key = None  # Disable XOR for standard Classic attempt
 
         logger.info("Authenticating with network password (Standard Classic)...")
         # Command 0x07 is the standard authentication opcode
@@ -247,7 +254,7 @@ class CasambiDevice:
             return None
         try:
             data = await self.client.read_gatt_char(self._status_uuid)
-            logger.info(f"==> DIRECT READ STATUS: {data.hex()}")
+            logger.debug("Direct read status char (%d bytes)", len(data))
             return bytes(data)
         except Exception as err:
             logger.error(f"Failed to read status char: {err}")
@@ -270,8 +277,7 @@ class CasambiDevice:
 
     def _notification_handler(self, sender: Any, data: bytearray) -> None:
         """Handle incoming notifications from device"""
-        hex_data = data.hex()
-        logger.info(f"==> BLE NOTIFICATION: {hex_data} (from {sender})")
+        logger.debug("BLE notification received from %s (%d bytes)", sender, len(data))
 
         status = self.parse_status(data=data)
         if status:
@@ -279,7 +285,7 @@ class CasambiDevice:
             state_str = "ON" if status.get("on", False) else "OFF"
             level = status.get("level_percent", 0)
             unit = status.get("id", "Unknown")
-            logger.info(f"    PARSED: Unit {unit} is {state_str} ({level}%)")
+            logger.debug("Parsed notification: Unit %s is %s (%s%%)", unit, state_str, level)
             self._dispatch_state(status=status)
 
         if self._notification_callback:
@@ -393,22 +399,16 @@ class CasambiDevice:
 
         async with self._write_lock:
             try:
-                # Opcode is the first byte, remains unencrypted
-                # Payload follows and must be XORed if we are in a Protected mesh
-                if self._session_key and command != CasambiCommands.AUTHENTICATE:
-                    xor_payload = bytearray()
-                    for i, byte in enumerate(payload):
-                        # Rotate through 4-byte session key
-                        xor_payload.append(byte ^ self._session_key[i % 4])
-                    payload = bytes(xor_payload)
-
                 packet = struct.pack("B", command) + payload
                 logger.debug(
-                    f"Sending command {command:#02x} to {self._control_uuid}: {packet.hex()}"
+                    "Sending command %#02x to %s (%d bytes)",
+                    command,
+                    self._control_uuid,
+                    len(packet),
                 )
 
                 await self.client.write_gatt_char(self._control_uuid, packet, response=True)
-                logger.debug(f"Successfully wrote {len(packet)} bytes")
+                logger.debug("Successfully wrote %d bytes", len(packet))
 
             except asyncio.CancelledError:
                 raise
@@ -446,7 +446,7 @@ class CasambiDevice:
     async def turn_on_by_address(self, *, address: str) -> None:
         """Turn on a light unit by its 6-byte address (Internal ID)"""
         # Command 0x81 (Turn On Long Address). format: [0x81] [6-byte address]
-        logger.info(f"Switching Unit at address {address} to state: ON (Direct mode)")
+        logger.info("Switching Unit directly to state: ON")
         try:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:
@@ -458,7 +458,7 @@ class CasambiDevice:
     async def turn_off_by_address(self, *, address: str) -> None:
         """Turn off a light unit by its 6-byte address (Internal ID)"""
         # Command 0x82 (Turn Off Long Address)
-        logger.info(f"Switching Unit at address {address} to state: OFF (Direct mode)")
+        logger.info("Switching Unit directly to state: OFF")
         try:
             addr_bytes = bytes.fromhex(address.replace(":", ""))
             if len(addr_bytes) != 6:

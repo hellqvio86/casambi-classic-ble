@@ -10,7 +10,8 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-from bleak import BleakClient, BleakScanner, BLEDevice
+from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection, get_device
 
 from ._adv import _internal_address, matches_advertisement_address

@@ -13,9 +13,8 @@ from ._cache import Cache
 from ._client import (
     CasambiClient,
     CasambiClientClassic,
-    ConnectionState,
 )
-from ._constants import IncomingPacketType, isClassicNetwork
+from ._constants import ConnectionState, IncomingPacketType, isClassicNetwork
 from ._network import Network
 from ._operation import (
     OpCode,

@@ -8,7 +8,7 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
-from bleak.backends.client import BLEDevice
+from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import (
     BleakAbortedError,
@@ -25,8 +25,10 @@ from ._constants import (
     CLASSIC_AUTH_LEVEL_VISITOR,
     FIRST_UNSUPPORTED_PROTOCOL_VERSION,
     MIN_SUPPORTED_CLASSIC_VERSION,
-    ConnectionState,
     IncomingPacketType,
+)
+from ._constants import (
+    ConnectionState as ConnectionState,
 )
 from ._encryption import ClassicEncryptor
 from ._network import Network

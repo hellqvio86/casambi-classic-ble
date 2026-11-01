@@ -99,12 +99,15 @@ addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under
 
 [tool.mypy]
 python_version = "3.12"
-warn_return_any = true
-disallow_untyped_defs = true
+strict = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
+check_untyped_defs = false
 disallow_untyped_defs = false
+disallow_incomplete_defs = false
+warn_return_any = false
+warn_unused_ignores = false
 
 [dependency-groups]
 dev = [

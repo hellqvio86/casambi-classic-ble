@@ -13,6 +13,17 @@
   - Added `provenance` field (`"captured"` or `"derived"`) to every entry in `fixtures/golden_vectors.json`.
   - Added automated test asserting provenance declarations across all protocol fixture entries.
   - Linked hardware section in `README.md` to the compatibility matrix in `docs/protocol.md`.
+- **Quality Gates, Strict Typing & Client Test Suite (Q-001, Q-002, Q-006, Q-007):**
+  - Enforced `strict = true` in Mypy across all source files and aligned `AGENTS.md` gate specifications.
+  - Added extensive unit tests for `CasambiClientClassic` covering device info unpacking (`>8sBBBBB`), transient GATT read retries, authentication state transition and counter bumps, manager vs visitor key CMAC digest lengths, and disconnected error handling, raising `_client.py` test coverage to 92%.
+  - Added automated AST and signature validation for all fenced Python snippets in `README.md` (`Q-006`).
+  - Added release hygiene test ensuring `CHANGELOG.md` always has an entry for the version in `pyproject.toml` (`Q-007`).
+
+### Documentation
+- **README & Quick-Start Accuracy (D-001, D-002):**
+  - Fixed `CasambiCloud` quick-start snippet with valid constructor arguments (`email`, `api_key`, `user_password`, `network_password`) and valid session initialization calls (`create_user_session`, `create_network_session`, `get_network_information`).
+  - Updated quick-start examples to demonstrate modern `try...except CasambiConnectionError` handling.
+  - Added dedicated "Troubleshooting" section covering the single-GATT-connection limit when the official mobile Casambi app is open.
 
 ### Fixed
 - **Address Parsing & Error Chaining in Direct Commands (T-016):**

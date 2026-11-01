@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import struct
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -350,3 +351,230 @@ def test_classic_established_notify_multi_unit_with_extras(mock_classic_client):
         IncomingPacketType.UnitState,
         {"id": 2, "online": False, "on": True, "state": bytes([0xCC])},
     )
+
+
+@pytest.mark.asyncio
+async def test_classic_exchange_key_parses_device_info(mock_classic_client):
+    """Q-002: Verify exchangeKey parses device info (>8sBBBBB) and sets connection state."""
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    # >8sBBBBB: connhash(8B), unit(1B), flags_lo(1B), mtu(1B), protocolVersion(1B), flags_high(1B)
+    connhash = b"\x11\x22\x33\x44\x55\x66\x77\x88"
+    resp = struct.pack(">8sBBBBB", connhash, 1, 2, 128, 5, 0)
+    mock_classic_client._gattClient.read_gatt_char = AsyncMock(return_value=resp)
+    mock_classic_client._gattClient.start_notify = AsyncMock()
+
+    await mock_classic_client.exchangeKey()
+
+    assert mock_classic_client._connhash == connhash
+    assert mock_classic_client._unit == 1
+    assert mock_classic_client._flags == 2
+    assert mock_classic_client._mtu == 128
+    assert mock_classic_client._connectionState == ConnectionState.KEY_EXCHANGED
+    mock_classic_client._gattClient.start_notify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_classic_exchange_key_transient_error_retry(mock_classic_client):
+    """Q-002: Verify exchangeKey retries on transient BleakError during read_gatt_char."""
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    connhash = b"\x11" * 8
+    valid_resp = struct.pack(">8sBBBBB", connhash, 1, 0, 64, 5, 0)
+
+    # Retry succeeds on second attempt
+    mock_classic_client._gattClient.read_gatt_char = AsyncMock(
+        side_effect=[BleakError("Device busy"), valid_resp]
+    )
+    mock_classic_client._gattClient.start_notify = AsyncMock()
+
+    await mock_classic_client.exchangeKey(retries=2)
+    assert mock_classic_client._connectionState == ConnectionState.KEY_EXCHANGED
+
+    # Exceeding retries raises BluetoothError
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    mock_classic_client._gattClient.read_gatt_char = AsyncMock(
+        side_effect=BleakError("Device busy")
+    )
+    with pytest.raises(BluetoothError, match="Failed to initiate GATT read"):
+        await mock_classic_client.exchangeKey(retries=1)
+
+
+@pytest.mark.asyncio
+async def test_classic_authenticate_flow(mock_classic_client):
+    """Q-002: Verify authenticate sends version, increments outPacketCount, and authenticates."""
+    mock_classic_client._connectionState = ConnectionState.KEY_EXCHANGED
+    mock_classic_client._outPacketCount = 1
+    mock_classic_client._connhash = b"\x22" * 8
+
+    await mock_classic_client.authenticate()
+
+    assert mock_classic_client._connectionState == ConnectionState.AUTHENTICATED
+    assert mock_classic_client._outPacketCount == 2
+    mock_classic_client._gattClient.write_gatt_char.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_classic_send_internal_manager_vs_visitor(mock_classic_client):
+    """Q-002: Verify manager key uses prefix 0x03 and visitor key uses prefix 0x02."""
+    mock_classic_client._connhash = b"\x33" * 8
+    mock_classic_client._outPacketCount = 1
+
+    # 1. Manager encryptor present -> prefix 0x03, 16-byte CMAC digest
+    await mock_classic_client._sendInternal(b"\xaa\xbb")
+    written_data = mock_classic_client._gattClient.write_gatt_char.call_args[0][1]
+    assert written_data[0] == 0x03
+    # 1B prefix + 2B seq + 2B payload + 16B CMAC = 21 bytes
+    assert len(written_data) == 21
+
+    # 2. Visitor encryptor only -> prefix 0x02, 4-byte CMAC digest
+    mock_classic_client._managerEncryptor = None
+    mock_classic_client._gattClient.write_gatt_char.reset_mock()
+    await mock_classic_client._sendInternal(b"\xaa\xbb")
+    written_data = mock_classic_client._gattClient.write_gatt_char.call_args[0][1]
+    assert written_data[0] == 0x02
+    # 1B prefix + 2B seq + 2B payload + 4B CMAC = 9 bytes
+    assert len(written_data) == 9
+
+
+@pytest.mark.asyncio
+async def test_classic_send_internal_disconnected_raises_connection_state_error(
+    mock_classic_client,
+):
+    """Q-002: Verify 'Not connected' BleakError raises ConnectionStateError and resets state."""
+    mock_classic_client._connhash = b"\x44" * 8
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+    mock_classic_client._gattClient.write_gatt_char = AsyncMock(
+        side_effect=BleakError("Not connected")
+    )
+
+    with pytest.raises(ConnectionStateError):
+        await mock_classic_client._sendInternal(b"\x01")
+
+    assert mock_classic_client._connectionState == ConnectionState.NONE
+
+
+@pytest.mark.asyncio
+async def test_classic_send_internal_generic_bleak_error_raises_bluetooth_error(
+    mock_classic_client,
+):
+    """Q-002: Verify generic BleakError during write raises BluetoothError."""
+    mock_classic_client._connhash = b"\x44" * 8
+    mock_classic_client._gattClient.write_gatt_char = AsyncMock(
+        side_effect=BleakError("ATT write failure")
+    )
+
+    with pytest.raises(BluetoothError):
+        await mock_classic_client._sendInternal(b"\x01")
+
+
+def test_classic_unsupported_callbacks_raise_protocol_error(mock_classic_client):
+    """Q-002: Verify handshake notify callbacks reject unexpected packets."""
+    with pytest.raises(ProtocolError):
+        mock_classic_client._exchNotifyCallback(MagicMock(), b"\x01")
+
+    with pytest.raises(ProtocolError):
+        mock_classic_client._authNotifyCallback(MagicMock(), b"\x01")
+
+
+@pytest.mark.asyncio
+async def test_classic_client_connect_success_and_callback_loop(mock_network):
+    """Q-002: Verify successful connect() initializes callback task and queue."""
+    mock_gatt = AsyncMock()
+    mock_gatt.is_connected = True
+    data_cb = MagicMock()
+    disc_cb = MagicMock()
+
+    client = CasambiClientClassic(
+        address_or_device="AA:BB:CC:DD:EE:FF",
+        dataCallback=data_cb,
+        disconnected_callback=disc_cb,
+        network=mock_network,
+    )
+
+    with (
+        patch("casambi_classic_ble._client.get_device", new=AsyncMock(return_value=MagicMock())),
+        patch("casambi_classic_ble._client.close_stale_connections", new=AsyncMock()),
+        patch(
+            "casambi_classic_ble._client.establish_connection",
+            new=AsyncMock(return_value=mock_gatt),
+        ),
+    ):
+        await client.connect()
+        assert client._connectionState == ConnectionState.CONNECTED
+        assert client._callbackTask is not None
+
+        # Queue a callback and verify the loop processes it
+        client._connectionState = ConnectionState.AUTHENTICATED
+        frame = bytes([1, 0x81, 0xAA])
+        client._queueCallback(MagicMock(), bytearray(frame))
+        await asyncio.sleep(0.02)
+        data_cb.assert_called_once()
+
+        await client.disconnect()
+        assert client._connectionState == ConnectionState.NONE
+        assert client._callbackTask is None
+
+
+@pytest.mark.asyncio
+async def test_classic_disconnect_handles_bleak_error(mock_classic_client):
+    """Q-002: Disconnect swallows BleakError cleanly."""
+    mock_classic_client._gattClient.disconnect = AsyncMock(
+        side_effect=BleakError("Disconnect error")
+    )
+    await mock_classic_client.disconnect()
+    assert mock_classic_client._connectionState == ConnectionState.NONE
+
+
+@pytest.mark.asyncio
+async def test_classic_exchange_key_version_mismatch_and_notify_failure(mock_classic_client):
+    """Q-002: Verify version mismatch logs warning and start_notify BleakError raises BluetoothError."""
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    # Protocol version 7 reported by device (network expected 5)
+    resp = struct.pack(">8sBBBBB", b"\x11" * 8, 1, 0, 64, 7, 0)
+    mock_classic_client._gattClient.read_gatt_char = AsyncMock(return_value=resp)
+    mock_classic_client._gattClient.start_notify = AsyncMock(
+        side_effect=BleakError("Notify failed")
+    )
+
+    with pytest.raises(BluetoothError, match="Failed to initiate GATT notify"):
+        await mock_classic_client.exchangeKey()
+
+
+def test_classic_constructor_validations(mock_network):
+    """Q-002: Verify constructor requires callbacks, network, and visitor key."""
+    # Missing disconnected callback
+    with pytest.raises(ValueError, match="disconnected_callback is required"):
+        CasambiClientClassic(
+            address_or_device="AA:BB:CC:DD:EE:FF",
+            dataCallback=MagicMock(),
+            disconnected_callback=None,
+            network=mock_network,
+        )
+
+    # Missing network
+    with pytest.raises(ValueError, match="network is required"):
+        CasambiClientClassic(
+            address_or_device="AA:BB:CC:DD:EE:FF",
+            dataCallback=MagicMock(),
+            disconnected_callback=MagicMock(),
+            network=None,
+        )
+
+    # Missing visitor key
+    bad_net = MagicMock(spec=Network)
+    bad_net.protocolVersion = 5
+    bad_net.keyStore.getLegacyKey.return_value = None
+    with pytest.raises(ProtocolError, match="Can't continue without visitor key"):
+        CasambiClientClassic(
+            address_or_device="AA:BB:CC:DD:EE:FF",
+            dataCallback=MagicMock(),
+            disconnected_callback=MagicMock(),
+            network=bad_net,
+        )
+
+
+def test_classic_callback_multiplexer_unhandled_state(mock_classic_client, caplog):
+    """Q-002: Verify unhandled notify in NONE state logs warning."""
+    mock_classic_client._connectionState = ConnectionState.NONE
+    with caplog.at_level(logging.WARNING):
+        mock_classic_client._callback_multiplexer(MagicMock(), b"\x01\x02")
+    assert "Unhandled notify in state" in caplog.text

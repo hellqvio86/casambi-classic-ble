@@ -198,7 +198,7 @@ Keep these hardware realities in mind when working on the protocol layer:
 ## 🛡️ Enforced CI Quality Gates
 
 All checks are strictly **enforced and blocking** in GitHub Actions CI:
-- **Linting & Formatting:** Ruff with rules `E`, `F`, `W`, `I`, `UP`, `B`, `ASYNC`, `BLE`, `TRY`, `RUF`, `SIM`, `PT`, `ANN`, `S`, `FBT`.
+- **Linting & Formatting:** Ruff with rules `E`, `F`, `W`, `I`, `UP`, `B`, `ASYNC`, `BLE`, `RUF`, `SIM`.
 - **Static Typing:** Mypy strict mode on all source files (`uv run mypy src/`).
 - **Unit Tests & Coverage:** Pytest with branch coverage floor of **80%** (`--cov-branch --cov-fail-under=80`).
 - **Dependency Floors:** Tested against lowest-direct dependency resolution matrix (`uv sync --resolution lowest-direct`).

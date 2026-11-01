@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from bleak import BleakClient, BLEDevice
+from bleak import BleakClient
+from bleak.backends.device import BLEDevice
 
 
 @pytest.fixture

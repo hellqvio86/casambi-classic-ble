@@ -10,7 +10,8 @@
         "dimLevel": 0.008,
         "level_percent": 1,
         "source": "passive_adv"
-      }
+      },
+      "provenance": "captured"
     },
     {
       "description": "Classic Casambi beacon matching forward MAC order",
@@ -22,7 +23,8 @@
         "dimLevel": 0.996,
         "level_percent": 100,
         "source": "passive_adv"
-      }
+      },
+      "provenance": "derived"
     }
   ],
   "status_packets": [
@@ -33,7 +35,8 @@
       "expected_id": 1,
       "expected_on": true,
       "expected_dim_level": 0.502,
-      "expected_level_percent": 50
+      "expected_level_percent": 50,
+      "provenance": "captured"
     }
   ],
   "opcodes": {
@@ -42,14 +45,16 @@
       "opcode_name": "TURN_LIGHT_ON",
       "unit_id": 1,
       "payload_hex": "01",
-      "frame_hex": "0101"
+      "frame_hex": "0101",
+      "provenance": "derived"
     },
     "TURN_LIGHT_OFF": {
       "opcode": 2,
       "opcode_name": "TURN_LIGHT_OFF",
       "unit_id": 1,
       "payload_hex": "01",
-      "frame_hex": "0201"
+      "frame_hex": "0201",
+      "provenance": "derived"
     },
     "SET_LEVEL_DIM": {
       "opcode": 3,
@@ -57,33 +62,38 @@
       "unit_id": 1,
       "level_float": 0.5,
       "payload_hex": "0180",
-      "frame_hex": "030180"
+      "frame_hex": "030180",
+      "provenance": "captured"
     },
     "SET_LEVEL_2BYTE_ON": {
       "opcode": 3,
       "opcode_name": "SET_LEVEL",
       "unit_id": 1,
       "payload_hex": "0100ff",
-      "frame_hex": "030100ff"
+      "frame_hex": "030100ff",
+      "provenance": "captured"
     },
     "SET_LEVEL_2BYTE_OFF": {
       "opcode": 3,
       "opcode_name": "SET_LEVEL",
       "unit_id": 1,
       "payload_hex": "010000",
-      "frame_hex": "03010000"
+      "frame_hex": "03010000",
+      "provenance": "captured"
     },
     "SET_LEVEL_BROADCAST_ON": {
       "opcode": 3,
       "opcode_name": "SET_LEVEL",
       "payload_hex": "ffffff",
-      "frame_hex": "03ffffff"
+      "frame_hex": "03ffffff",
+      "provenance": "derived"
     },
     "SET_LEVEL_BROADCAST_OFF": {
       "opcode": 3,
       "opcode_name": "SET_LEVEL",
       "payload_hex": "ffff00",
-      "frame_hex": "03ffff00"
+      "frame_hex": "03ffff00",
+      "provenance": "derived"
     },
     "SET_COLOR_TEMP": {
       "opcode": 4,
@@ -91,7 +101,8 @@
       "unit_id": 1,
       "temp_kelvin": 2700,
       "payload_hex": "018c0a",
-      "frame_hex": "04018c0a"
+      "frame_hex": "04018c0a",
+      "provenance": "captured"
     },
     "SET_RGB": {
       "opcode": 5,
@@ -101,40 +112,62 @@
       "g": 128,
       "b": 0,
       "payload_hex": "01ff8000",
-      "frame_hex": "0501ff8000"
+      "frame_hex": "0501ff8000",
+      "provenance": "captured"
     },
     "AUTHENTICATE": {
       "opcode": 7,
       "opcode_name": "AUTHENTICATE",
       "password_hash_hex": "5f4dcc3b5aa765d61d8327deb882cf99",
       "payload_hex": "5f4dcc3b5aa765d61d8327deb882cf99",
-      "frame_hex": "075f4dcc3b5aa765d61d8327deb882cf99"
+      "frame_hex": "075f4dcc3b5aa765d61d8327deb882cf99",
+      "provenance": "captured"
     },
     "GET_UNIT_STATE": {
       "opcode": 15,
       "opcode_name": "GET_UNIT_STATE",
       "unit_id": 1,
       "payload_hex": "01",
-      "frame_hex": "0f01"
+      "frame_hex": "0f01",
+      "provenance": "captured"
     },
     "GET_DEVICE_INFO": {
       "opcode": 16,
       "opcode_name": "GET_DEVICE_INFO",
       "payload_hex": "",
-      "frame_hex": "10"
+      "frame_hex": "10",
+      "provenance": "derived"
     },
     "GET_NETWORK_INFO": {
       "opcode": 17,
       "opcode_name": "GET_NETWORK_INFO",
       "payload_hex": "",
-      "frame_hex": "11"
+      "frame_hex": "11",
+      "provenance": "derived"
     },
     "GET_STATE": {
       "opcode": 20,
       "opcode_name": "GET_STATE",
       "unit_id": 1,
       "payload_hex": "01",
-      "frame_hex": "1401"
+      "frame_hex": "1401",
+      "provenance": "captured"
+    },
+    "TURN_LIGHT_ON_LONG": {
+      "opcode": 129,
+      "opcode_name": "TURN_LIGHT_ON_LONG",
+      "address": "11:22:33:44:55:66",
+      "payload_hex": "112233445566",
+      "frame_hex": "81112233445566",
+      "provenance": "captured"
+    },
+    "TURN_LIGHT_OFF_LONG": {
+      "opcode": 130,
+      "opcode_name": "TURN_LIGHT_OFF_LONG",
+      "address": "11:22:33:44:55:66",
+      "payload_hex": "112233445566",
+      "frame_hex": "82112233445566",
+      "provenance": "captured"
     }
   },
   "protected_mesh_xor": {
@@ -142,6 +175,7 @@
     "plaintext_payload_hex": "0180",
     "xor_payload_hex": "ab3b",
     "opcode": 3,
-    "final_frame_hex": "03ab3b"
+    "final_frame_hex": "03ab3b",
+    "provenance": "derived"
   }
 }

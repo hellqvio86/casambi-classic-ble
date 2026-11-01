@@ -81,15 +81,20 @@ pip install -e .
 
 ```python
 import asyncio
-from casambi_classic_ble import CasambiDevice
+from casambi_classic_ble import CasambiConnectionError, CasambiDevice
 
 async def main():
     # Target your node by Bluetooth address (or pass a Bleak BLEDevice from Home Assistant)
     light = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-    await light.connect()
+    try:
+        await light.connect()
+    except CasambiConnectionError as err:
+        print(f"Could not connect to {light.address}: {err}")
+        return
 
     try:
         # Optional: Authenticate if your network requires a password
+        # (Only needed if the network is password-protected and unauthenticated writes are rejected)
         # await light.authenticate(password="your_network_password")
 
         # Control a specific unit (e.g. Unit 1)
@@ -107,11 +112,14 @@ async def main():
 asyncio.run(main())
 ```
 
+> [!NOTE]
+> **Single Connection Limit:** Casambi nodes accept only **one active BLE connection** at a time. If the official Casambi mobile app is open, connections will time out (see [Troubleshooting](#troubleshooting)).
+
 ### 2. Discovery & Bring-Your-Own-Scanner (Home Assistant)
 
 ```python
 import asyncio
-from casambi_classic_ble import CasambiScanner, CasambiDevice
+from casambi_classic_ble import CasambiConnectionError, CasambiDevice, CasambiScanner
 
 async def main():
     scanner = CasambiScanner()
@@ -120,9 +128,13 @@ async def main():
     # Filter for your specific device by Bluetooth address rather than connecting blindly
     target = next((d for d in devices if d.address.upper() == "AA:BB:CC:DD:EE:FF"), None)
     if target:
-        await target.connect()
-        await target.turn_on(unit_id=1)
-        await target.disconnect()
+        try:
+            await target.connect()
+            await target.turn_on(unit_id=1)
+        except CasambiConnectionError as err:
+            print(f"Failed to connect to {target.address}: {err}")
+        finally:
+            await target.disconnect()
 
 asyncio.run(main())
 ```
@@ -135,8 +147,8 @@ from casambi_classic_ble import CasambiDevice
 device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
 def on_state_change(state: dict):
-    unit_str = f"Unit {state['id']}: " if "id" in state else ""
-    print(f"{unit_str}{'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
+    # Decoded passive broadcast state dictionary containing verified status
+    print(f"State updated: {'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
 
 # Register subscription callback (automatically deduplicates identical frames)
 unsubscribe = device.register_state_callback(callback=on_state_change)
@@ -148,18 +160,27 @@ def on_advertisement(mfr_data: bytes):
 
 ### 4. Optional Cloud API Bridge
 
+Install with cloud extras: `pip install casambi-classic-ble[cloud]`
+
 ```python
 import asyncio
 from casambi_classic_ble import CasambiCloud
 
 async def main():
+    # Required credentials:
+    # - api_key: Casambi developer API key
+    # - email & user_password: User account credentials
+    # - network_password: Password of the specific lighting network
     async with CasambiCloud(
         api_key="your_api_key",
-        user_email="user@example.com",
+        email="user@example.com",
         user_password="password",
+        network_password="network_password",
     ) as cloud:
-        networks = await cloud.get_networks()
-        print("Discovered cloud networks:", networks)
+        await cloud.create_user_session()
+        await cloud.create_network_session()
+        net_info = await cloud.get_network_information()
+        print("Discovered cloud network information:", net_info)
 
 asyncio.run(main())
 ```
@@ -174,8 +195,18 @@ asyncio.run(main())
   - **Casambi CBU-PWM4 RGBW** (4-channel PWM dimmer)
   - **AIMOTION GLOW** (Pendant luminaire)
   - *All running Casambi Classic firmware (v26.x or earlier).*
+- **Command Variants & Hardware Evidence:** See the [Command Variant & Hardware Compatibility Matrix](docs/protocol.md#3-command-variant--hardware-compatibility-matrix) in `docs/protocol.md` for exact opcode payloads (1-byte vs 2-byte unit IDs), verified models, and capture provenance.
 - **Concurrent Connections:** Casambi mesh nodes typically allow only **one active BLE connection** at a time. If the official Casambi mobile app is actively connected to a node, connection attempts from other clients will be rejected until the app disconnects.
-- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, and Wireshark capture guides.
+- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, signed session packets, and Wireshark capture guides.
+
+---
+
+## Troubleshooting
+
+### Connection Times Out While Casambi App Is Open
+Casambi mesh nodes strictly allow only **one active Bluetooth Low Energy GATT connection** at a time. If the official Casambi mobile app (iOS or Android) is open in the foreground or background on a smartphone or tablet in range, it will hold the GATT connection to the node. Any connection attempt from `casambi-classic-ble` or Home Assistant will time out with a `CasambiConnectionError`.
+
+**Solution:** Force-close or background-disconnect the official Casambi mobile app before connecting with `casambi-classic-ble`.
 
 ---
 

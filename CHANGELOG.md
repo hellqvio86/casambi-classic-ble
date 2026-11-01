@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.1] - 2026-11-01
+
+### Added
+- **Opcode & Address Command Constants (T-016):**
+  - Added `TURN_LIGHT_ON_LONG = 0x81` and `TURN_LIGHT_OFF_LONG = 0x82` to `CasambiCommands` enum.
+  - Documented observed vs exposed opcodes (`TURN_LIGHT_ON`, `TURN_LIGHT_OFF`, `GET_DEVICE_INFO`, `GET_NETWORK_INFO`) in `CasambiCommands` docstring and `docs/protocol.md`.
+  - Added golden vectors for `TURN_LIGHT_ON_LONG` and `TURN_LIGHT_OFF_LONG` in `fixtures/golden_vectors.json`.
+  - Added AST introspection test ensuring every command opcode dispatched via `CasambiDevice._send_command` is covered in golden vectors.
+- **Hardware Compatibility Matrix & Vector Provenance (T-017):**
+  - Added Command Variant & Hardware Compatibility Matrix to `docs/protocol.md` detailing 1-byte vs 2-byte unit ID payload layouts, verified models, and capture provenance across verified Classic models.
+  - Added `provenance` field (`"captured"` or `"derived"`) to every entry in `fixtures/golden_vectors.json`.
+  - Added automated test asserting provenance declarations across all protocol fixture entries.
+  - Linked hardware section in `README.md` to the compatibility matrix in `docs/protocol.md`.
+- **Quality Gates, Strict Typing & Client Test Suite (Q-001, Q-002, Q-006, Q-007):**
+  - Enforced `strict = true` in Mypy across all source files and aligned `AGENTS.md` gate specifications.
+  - Added extensive unit tests for `CasambiClientClassic` covering device info unpacking (`>8sBBBBB`), transient GATT read retries, authentication state transition and counter bumps, manager vs visitor key CMAC digest lengths, and disconnected error handling, raising `_client.py` test coverage to 92%.
+  - Added automated AST and signature validation for all fenced Python snippets in `README.md` (`Q-006`).
+  - Added release hygiene test ensuring `CHANGELOG.md` always has an entry for the version in `pyproject.toml` (`Q-007`).
+
+### Documentation
+- **README & Quick-Start Accuracy (D-001, D-002):**
+  - Fixed `CasambiCloud` quick-start snippet with valid constructor arguments (`email`, `api_key`, `user_password`, `network_password`) and valid session initialization calls (`create_user_session`, `create_network_session`, `get_network_information`).
+  - Updated quick-start examples to demonstrate modern `try...except CasambiConnectionError` handling.
+  - Added dedicated "Troubleshooting" section covering the single-GATT-connection limit when the official mobile Casambi app is open.
+
+### Fixed
+- **Address Parsing & Error Chaining in Direct Commands (T-016):**
+  - Extracted `_parse_address_bytes()` helper in `device.py` validating 6-byte hexadecimal addresses (supporting colon, hyphen, or unseparated hex string formats) and raising `CasambiDeviceError` with chained `from err`.
+  - Replaced raw `except Exception` blocks in `turn_on_by_address` and `turn_off_by_address`.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added

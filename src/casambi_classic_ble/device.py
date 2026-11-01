@@ -1,14 +1,17 @@
 """Casambi BLE device implementation"""
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import platform
 import struct
+import warnings
 from collections.abc import Callable
 from typing import Any
 
 from bleak import BleakClient, BleakScanner, BLEDevice
+from bleak_retry_connector import establish_connection, get_device
 
 from ._adv import _internal_address, matches_advertisement_address
 from .constants import CasambiCommands, CasambiUUIDs
@@ -16,6 +19,7 @@ from .exceptions import (
     CasambiCommandError,
     CasambiConnectionError,
     CasambiDeviceError,
+    CasambiDeviceNotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,14 @@ class CasambiDevice:
         name: str = "Unknown",
         client: BleakClient | None = None,
     ):
+        """Initialize a Casambi BLE device.
+
+        Contract for injected BleakClient:
+        When passing a pre-existing BleakClient via the `client` parameter (e.g. from
+        Home Assistant's bluetooth manager), CasambiDevice does not manage its discovery
+        lifecycle. If the external BLE stack disconnects the client, callers should invoke
+        `handle_disconnect()` to reset internal connection and deduplication state.
+        """
         if isinstance(address, BLEDevice):
             self.address = address.address
             self.name = address.name or name
@@ -43,9 +55,10 @@ class CasambiDevice:
         self._internal_address: str | None = None
 
         self.client: BleakClient | None = client
-        self.is_connected = False
-        self._notification_callback: Callable[[bytearray], None] | None = None
-        self._disconnect_callback: Callable[[], None] | None = None
+        self._injected_client: bool = client is not None
+        self._is_connected: bool = False
+        self._notification_callbacks: list[Callable[[bytearray], None]] = []
+        self._disconnect_callbacks: list[Callable[[], None]] = []
         self._write_lock: asyncio.Lock = asyncio.Lock()
         self.last_state: dict[str, Any] = {}
         self._state_callbacks: list[Callable[[dict[str, Any]], None]] = []
@@ -53,9 +66,75 @@ class CasambiDevice:
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
 
+    @property
+    def is_connected(self) -> bool:
+        """Whether the device is currently connected."""
+        if self.client is not None:
+            return self._is_connected and bool(getattr(self.client, "is_connected", False))
+        return self._is_connected
+
+    @is_connected.setter
+    def is_connected(self, value: bool) -> None:
+        """Set connection state (for testing/mocking)."""
+        self._is_connected = bool(value)
+
+    def handle_disconnect(self) -> None:
+        """Handle disconnection event from external BLE stack or injected client."""
+        self._is_connected = False
+        self._last_notified_states.clear()
+        if not self._injected_client:
+            self.client = None
+            self._ble_device = None
+        logger.info(f"Device {self.name} disconnected from BLE stack")
+        for cb in list(self._disconnect_callbacks):
+            try:
+                cb()
+            except Exception as err:
+                logger.warning(f"Error in disconnect callback: {err}", exc_info=True)
+
+    def _on_bleak_disconnect(self, client: BleakClient) -> None:
+        """Internal callback invoked when Bleak drops connection."""
+        self.handle_disconnect()
+
+    def register_disconnect_callback(self, *, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback invoked on unexpected disconnection. Returns unsubscribe callable."""
+        self._disconnect_callbacks.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._disconnect_callbacks:
+                self._disconnect_callbacks.remove(callback)
+
+        return unsubscribe
+
     def set_disconnected_callback(self, *, callback: Callable[[], None]) -> None:
-        """Set callback invoked on unexpected disconnection"""
-        self._disconnect_callback = callback
+        """Deprecated: use register_disconnect_callback instead."""
+        warnings.warn(
+            "set_disconnected_callback is deprecated; use register_disconnect_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.register_disconnect_callback(callback=callback)
+
+    def register_notification_callback(
+        self, *, callback: Callable[[bytearray], None]
+    ) -> Callable[[], None]:
+        """Register a callback for raw GATT notifications. Returns unsubscribe callable."""
+        self._notification_callbacks.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._notification_callbacks:
+                self._notification_callbacks.remove(callback)
+
+        return unsubscribe
+
+    def set_notification_callback(self, *, callback: Callable[[bytearray], None]) -> None:
+        """Deprecated: use register_notification_callback instead."""
+        warnings.warn(
+            "set_notification_callback is deprecated; use register_notification_callback instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.register_notification_callback(callback=callback)
 
     def register_state_callback(
         self, *, callback: Callable[[dict[str, Any]], None]
@@ -69,30 +148,28 @@ class CasambiDevice:
 
         return unsubscribe
 
-    def _on_bleak_disconnect(self, client: BleakClient) -> None:
-        """Internal callback invoked when Bleak drops connection"""
-        self.is_connected = False
-        logger.info(f"Device {self.name} disconnected from BLE stack")
-        if self._disconnect_callback:
-            try:
-                self._disconnect_callback()
-            except Exception as err:
-                logger.warning(f"Error in disconnect callback: {err}", exc_info=True)
-
-    async def connect(self, *, timeout: float = 30.0) -> bool:
-        """Connect to the Casambi device (idempotent if already connected)"""
-        if self.is_connected and self.client and getattr(self.client, "is_connected", False):
+    async def connect(self, *, timeout: float = 30.0) -> None:
+        """Connect to the Casambi device (idempotent if already connected)."""
+        if self._is_connected and self.client and getattr(self.client, "is_connected", False):
             logger.debug(f"Device {self.name} is already connected.")
-            return True
+            return
+
+        self._last_notified_states.clear()
+
         try:
             # If no pre-injected client, find/connect the device
             if not self.client:
-                # Use BLEDevice if we have it, otherwise try to find it
+                # Fast lookup via bleak_retry_connector
+                if not self._ble_device:
+                    try:
+                        self._ble_device = await get_device(self.address)
+                    except Exception as err:
+                        logger.debug(f"Fast lookup failed for {self.address}: {err}")
+                        self._ble_device = None
+
+                # Fallback to scanning if fast lookup did not find the device
                 if not self._ble_device:
                     logger.debug("Searching for device %s...", self.address)
-
-                    # We'll do one scan and check multiple conditions for each discovered device
-                    # This is much more reliable than multiple sequential find_device calls
                     if platform.system() == "Darwin":
                         discovered = await BleakScanner.discover(
                             timeout=timeout / 2, return_adv=True, cb={"use_bdaddr": True}
@@ -141,12 +218,10 @@ class CasambiDevice:
 
                 if not self._ble_device:
                     logger.error("Device %s not found.", self.address)
-                    return False
+                    raise CasambiDeviceNotFoundError(f"Device {self.address} not found")
 
                 logger.debug("Connecting to %s...", self._ble_device.address)
                 try:
-                    from bleak_retry_connector import establish_connection
-
                     self.client = await establish_connection(
                         client_class=BleakClient,
                         device=self._ble_device,
@@ -155,51 +230,58 @@ class CasambiDevice:
                         disconnected_callback=self._on_bleak_disconnect,
                     )
                 except Exception as err:
-                    logger.warning(
-                        f"establish_connection failed, falling back to direct BleakClient: {err}"
-                    )
-                    self.client = BleakClient(
-                        self._ble_device,
-                        timeout=timeout,
-                        disconnected_callback=self._on_bleak_disconnect,
-                    )
-                    await self.client.connect()
+                    logger.error(f"Failed to establish connection to {self.address}: {err}")
+                    raise CasambiConnectionError(
+                        f"Failed to connect to {self.address}: {err}"
+                    ) from err
             elif not getattr(self.client, "is_connected", False):
-                await self.client.connect()
+                try:
+                    await self.client.connect()
+                except Exception as err:
+                    logger.error(f"Failed to connect injected client: {err}")
+                    raise CasambiConnectionError(
+                        f"Failed to connect to {self.address}: {err}"
+                    ) from err
 
             # Discover services to determine which characteristics to use
-            services = self.client.services
-            if CasambiUUIDs.SERVICE_V2.lower() in [s.uuid.lower() for s in services]:
-                logger.info("Using protocol variant 2 (FE4D)")
-                self._control_uuid = CasambiUUIDs.CONTROL_V2
-                self._status_uuid = CasambiUUIDs.STATUS_V2
-            else:
-                logger.info("Using protocol variant 1 (FE3D)")
-                self._control_uuid = CasambiUUIDs.CONTROL_V1
-                self._status_uuid = CasambiUUIDs.STATUS_V1
+            try:
+                services = self.client.services
+                if CasambiUUIDs.SERVICE_V2.lower() in [s.uuid.lower() for s in services]:
+                    logger.info("Using protocol variant 2 (FE4D)")
+                    self._control_uuid = CasambiUUIDs.CONTROL_V2
+                    self._status_uuid = CasambiUUIDs.STATUS_V2
+                else:
+                    logger.info("Using protocol variant 1 (FE3D)")
+                    self._control_uuid = CasambiUUIDs.CONTROL_V1
+                    self._status_uuid = CasambiUUIDs.STATUS_V1
 
-            self.is_connected = True
-            dev_addr = self._ble_device.address if self._ble_device else self.address
-            logger.info("Connected and services resolved for %s", self.name)
-            logger.debug("Resolved device address: %s", dev_addr)
+                self._is_connected = True
+                dev_addr = self._ble_device.address if self._ble_device else self.address
+                logger.info("Connected and services resolved for %s", self.name)
+                logger.debug("Resolved device address: %s", dev_addr)
 
-            await self.client.start_notify(self._status_uuid, self._notification_handler)
+                await self.client.start_notify(self._status_uuid, self._notification_handler)
+            except Exception as err:
+                logger.error(f"Failed to resolve services or start notifications: {err}")
+                self._is_connected = False
+                if self.client:
+                    with contextlib.suppress(Exception):
+                        await self.client.disconnect()
+                raise CasambiConnectionError(f"Failed to configure connection: {err}") from err
 
-            return True
-
+        except (CasambiDeviceNotFoundError, CasambiConnectionError):
+            self._is_connected = False
+            raise
         except asyncio.CancelledError:
-            self.is_connected = False
+            self._is_connected = False
             raise
         except Exception as err:
             logger.error(f"Failed to connect to {self.address}: {err}")
-            self.is_connected = False
-            # Try to cleanup if stalled
+            self._is_connected = False
             if self.client:
-                try:
+                with contextlib.suppress(Exception):
                     await self.client.disconnect()
-                except Exception:
-                    pass
-            return False
+            raise CasambiConnectionError(f"Failed to connect to {self.address}: {err}") from err
 
     async def authenticate(self, *, password: str) -> None:
         """Authenticate with the network password.
@@ -228,37 +310,40 @@ class CasambiDevice:
 
     async def disconnect(self) -> None:
         """Disconnect from the device"""
-        if not self.is_connected:
+        if not self._is_connected and not (
+            self.client and getattr(self.client, "is_connected", False)
+        ):
             return
 
         if self.client:
             try:
                 # Only stop notify if we are connected
-                try:
+                with contextlib.suppress(Exception):
                     await self.client.stop_notify(self._status_uuid)
-                except Exception:
-                    pass
-                await self.client.disconnect()
-                self.is_connected = False
+                if getattr(self.client, "is_connected", False):
+                    await self.client.disconnect()
                 logger.info(f"Disconnected from {self.name}")
             except asyncio.CancelledError:
-                self.is_connected = False
+                self.handle_disconnect()
                 raise
             except Exception as err:
                 logger.error(f"Error disconnecting: {err}")
-                self.is_connected = False
+            finally:
+                self.handle_disconnect()
+        else:
+            self.handle_disconnect()
 
-    async def read_status_char(self) -> bytes | None:
+    async def read_status_char(self) -> bytes:
         """Perform a direct GATT read on the status characteristic"""
         if not self.is_connected or not self.client:
-            return None
+            raise CasambiConnectionError("Device not connected")
         try:
             data = await self.client.read_gatt_char(self._status_uuid)
             logger.debug("Direct read status char (%d bytes)", len(data))
             return bytes(data)
         except Exception as err:
             logger.error(f"Failed to read status char: {err}")
-            return None
+            raise CasambiDeviceError(f"Failed to read status char: {err}") from err
 
     def _dispatch_state(self, *, status: dict[str, Any]) -> None:
         """Dispatch state update to registered state callbacks with per-unit duplicate suppression."""
@@ -288,9 +373,9 @@ class CasambiDevice:
             logger.debug("Parsed notification: Unit %s is %s (%s%%)", unit, state_str, level)
             self._dispatch_state(status=status)
 
-        if self._notification_callback:
+        for cb in list(self._notification_callbacks):
             try:
-                self._notification_callback(data)
+                cb(data)
             except Exception as err:
                 logger.warning(f"Error in notification callback: {err}", exc_info=True)
 
@@ -346,13 +431,6 @@ class CasambiDevice:
             f"Passive Update for {self.name}: {'ON' if is_on else 'OFF'} ({status['level_percent']}%)"
         )
 
-        if self._notification_callback:
-            try:
-                # Wrap in bytearray to satisfy callback expectations
-                self._notification_callback(bytearray(mfr_data))
-            except Exception as err:
-                logger.warning(f"Error in notification callback: {err}", exc_info=True)
-
         self._dispatch_state(status=status)
 
         return status
@@ -387,10 +465,6 @@ class CasambiDevice:
         status["level_percent"] = level_pct
 
         return status
-
-    def set_notification_callback(self, *, callback: Callable[[bytearray], None]) -> None:
-        """Set callback for notifications"""
-        self._notification_callback = callback
 
     async def _send_command(self, *, command: int, payload: bytes = b"") -> None:
         """Send a command to the device, serialized with write lock"""
@@ -480,8 +554,12 @@ class CasambiDevice:
         payload = struct.pack("<HB", 0xFFFF, 0x00)
         await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def get_state(self, *, unit_id: int) -> None:
-        """Request state for a specific unit using multiple methods"""
+    async def request_state(self, *, unit_id: int, settle: float = 1.0) -> None:
+        """Request state for a specific unit using multiple methods.
+
+        Queries the device for state via command 0x14 followed by 0x0F after settle duration.
+        Incoming state updates will be delivered asynchronously via registered state callbacks.
+        """
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
         # Method 1: Global Get State (0x14)
@@ -489,12 +567,22 @@ class CasambiDevice:
         logger.debug(f"Requesting state via 0x14 for unit {unit_id}")
         await self._send_command(command=CasambiCommands.GET_STATE, payload=payload1)
 
-        await asyncio.sleep(1)
+        if settle > 0:
+            await asyncio.sleep(settle)
 
         # Method 2: Specific Unit Query (0x0F)
         # Often required by 26.x hardware
         logger.debug(f"Requesting state via 0x0F for unit {unit_id}")
         await self._send_command(command=CasambiCommands.GET_UNIT_STATE, payload=payload1)
+
+    async def get_state(self, *, unit_id: int) -> None:
+        """Deprecated: use request_state instead."""
+        warnings.warn(
+            "get_state is deprecated and will be removed in a future release; use request_state instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.request_state(unit_id=unit_id, settle=1.0)
 
     async def set_level(self, *, level: float, unit_id: int | None = None) -> None:
         """Set brightness level (0.0 - 1.0) for a unit or all units if unit_id is None."""
@@ -510,7 +598,7 @@ class CasambiDevice:
             payload = struct.pack("BB", unit_id, level_byte)
         await self._send_command(command=CasambiCommands.SET_LEVEL, payload=payload)
 
-    async def set_color_temperature(self, *, temp_kelvin: int, unit_id: int = 1) -> None:
+    async def set_color_temperature(self, *, unit_id: int, temp_kelvin: int) -> None:
         """Set color temperature (2000-6500K)"""
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
@@ -521,7 +609,7 @@ class CasambiDevice:
         payload = struct.pack("<BH", unit_id, temp_kelvin)
         await self._send_command(command=CasambiCommands.SET_COLOR_TEMP, payload=payload)
 
-    async def set_rgb(self, *, r: int, g: int, b: int, unit_id: int = 1) -> None:
+    async def set_rgb(self, *, unit_id: int, r: int, g: int, b: int) -> None:
         """Set RGB color (0-255 for each channel)"""
         if not (0 <= unit_id <= 255):
             raise CasambiDeviceError(f"unit_id must be between 0 and 255, got {unit_id}")
@@ -535,22 +623,24 @@ class CasambiDevice:
 
     async def get_device_info(self) -> dict[str, str]:
         """Read device information"""
-        info = {}
+        if not self.is_connected or not self.client:
+            raise CasambiConnectionError("Device not connected")
+
+        info: dict[str, str] = {}
         try:
-            if self.client:
-                mfr = await self.client.read_gatt_char(CasambiUUIDs.MANUFACTURER_NAME)
-                info["manufacturer"] = mfr.decode("utf-8")
+            mfr = await self.client.read_gatt_char(CasambiUUIDs.MANUFACTURER_NAME)
+            info["manufacturer"] = mfr.decode("utf-8")
 
-                model = await self.client.read_gatt_char(CasambiUUIDs.MODEL_NUMBER)
-                info["model"] = model.decode("utf-8")
+            model = await self.client.read_gatt_char(CasambiUUIDs.MODEL_NUMBER)
+            info["model"] = model.decode("utf-8")
 
-                try:
-                    fw = await self.client.read_gatt_char(CasambiUUIDs.FIRMWARE_REVISION)
-                    info["firmware"] = fw.decode("utf-8")
-                except Exception:
-                    pass
-
+            try:
+                fw = await self.client.read_gatt_char(CasambiUUIDs.FIRMWARE_REVISION)
+                info["firmware"] = fw.decode("utf-8")
+            except Exception:
+                pass
         except Exception as err:
             logger.error(f"Failed to read device info: {err}")
+            raise CasambiDeviceError(f"Failed to read device info: {err}") from err
 
         return info

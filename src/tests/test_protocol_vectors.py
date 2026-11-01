@@ -161,8 +161,8 @@ class TestProtocolGoldenVectors:
 
         mock_bleak_client.write_gatt_char = AsyncMock(side_effect=capture_write)
 
-        # get_state calls 0x14 then 0x0F
-        await device.get_state(unit_id=1)
+        # request_state calls 0x14 then 0x0F
+        await device.request_state(unit_id=1, settle=0.0)
         assert len(written_packets) == 2
         assert written_packets[0].hex() == golden_vectors["opcodes"]["GET_STATE"]["frame_hex"]
         assert written_packets[1].hex() == golden_vectors["opcodes"]["GET_UNIT_STATE"]["frame_hex"]

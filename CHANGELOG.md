@@ -1,6 +1,36 @@
 # Changelog
 
-## [0.3.7] - 2026-11-01
+## [0.4.0] - 2026-11-01
+
+### Breaking Changes
+- **Domain Exception Contract in `CasambiDevice` (T-010):**
+  - `CasambiDevice.connect()` now returns `None` on success, and raises `CasambiDeviceNotFoundError` when device discovery fails or `CasambiConnectionError` when connection establishment fails (with chained root cause).
+  - `CasambiDevice.read_status_char()` now returns `bytes` and raises `CasambiConnectionError` when disconnected or `CasambiDeviceError` on GATT read failure.
+  - `CasambiDevice.get_device_info()` now returns `dict[str, str]` and raises `CasambiConnectionError` when disconnected or `CasambiDeviceError` on GATT read failure.
+  - Removed error sentinel values (`False`, `None`) across `CasambiDevice`.
+- **Required `unit_id` in Unit Commands (T-013):**
+  - `CasambiDevice.set_color_temperature` and `CasambiDevice.set_rgb` now require `unit_id: int` as a mandatory keyword-only argument. Removed silent default to `unit_id=1`. Broadcast (`None`) is not supported by these opcodes and now rejected with explicit typing and validation.
+
+### Added
+- **Multi-Subscriber Notifications & Disconnections (T-015):**
+  - Added `CasambiDevice.register_notification_callback` and `CasambiDevice.register_disconnect_callback` returning unsubscribe callables, matching `register_state_callback`.
+  - Deprecated `set_notification_callback` and `set_disconnected_callback` with `DeprecationWarning`.
+  - Stopped feeding raw advertisement bytes into GATT notification callbacks in `update_from_advertisement`.
+- **Async State Queries (T-014):**
+  - Added `CasambiDevice.request_state(*, unit_id: int, settle: float = 1.0) -> None` with configurable settle delay between queries `0x14` and `0x0F`. Incoming states arrive via registered state callbacks.
+  - Deprecated `CasambiDevice.get_state` with `DeprecationWarning` pointing to `request_state`.
+- **Fast Discovery Lookup (T-012):**
+  - `CasambiDevice.connect()` now checks `bleak_retry_connector.get_device(address)` first before falling back to full `BleakScanner.discover` scanning, significantly speeding up reconnection times.
+  - Imported `bleak_retry_connector` functions at module top level.
+- **Connection Lifecycle & Injected Client Support (T-011):**
+  - `CasambiDevice.is_connected` is now a property checking both internal connection state and `client.is_connected`, immediately reflecting connection drops on caller-injected clients.
+  - Added `CasambiDevice.handle_disconnect()` to allow external managers (such as Home Assistant) to notify `CasambiDevice` when an injected client disconnects.
+  - `CasambiDevice.disconnect()` and `handle_disconnect()` reset deduplication state (`_last_notified_states.clear()`) and clear references for non-injected clients, ensuring the first state update after reconnect is always delivered.
+
+### Fixed
+- **Callback Task Leak on Connection Failure (T-006):**
+  - Delayed `self._callbackTask` creation in `CasambiClient.connect()` until after GATT connection is successfully established.
+  - Added `_cleanup_callback_task()` to reliably cancel and await worker tasks upon failure or disconnection.
 
 ### Security & Hygiene
 - **JSON Cache Migration & Backward Compatibility (S-001):** Migrated network session (`casambi_session.json`), unit types (`casambi_types.json`), and network ID (`casambi_network_id.txt`) from pickle to JSON. Automatically migrates legacy pickle files (`session.pck`, `types.pck`, `networkid`) on load with a `DeprecationWarning`, writes JSON with `0o600` permissions, and deletes legacy pickle files. Enforced `0o700` permissions on cache directories.

@@ -2,7 +2,7 @@
 
 import asyncio
 
-from casambi_classic_ble import CasambiScanner
+from casambi_classic_ble import CasambiConnectionError, CasambiScanner
 
 
 async def main() -> None:
@@ -18,8 +18,12 @@ async def main() -> None:
     light = devices[0]
     print(f"Connecting to: {light.name}")
 
-    await light.connect()
-    print("✓ Connected!")
+    try:
+        await light.connect()
+        print("✓ Connected!")
+    except CasambiConnectionError as err:
+        print(f"Failed to connect to {light.name}: {err}")
+        return
 
     try:
         await light.turn_on()

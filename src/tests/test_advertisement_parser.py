@@ -145,7 +145,7 @@ def test_advertisement_oversized_payload_handling(mock_device: CasambiDevice) ->
 def test_advertisement_callback_exception_isolation(mock_device: CasambiDevice) -> None:
     """Faulty external subscriber callbacks must never raise out of the parser."""
     failing_cb = MagicMock(side_effect=RuntimeError("Subscriber crash"))
-    mock_device.set_notification_callback(callback=failing_cb)
+    mock_device.register_state_callback(callback=failing_cb)
 
     valid_payload = bytes.fromhex("aabbccddeeff0180")
     result = mock_device.update_from_advertisement(mfr_data=valid_payload)

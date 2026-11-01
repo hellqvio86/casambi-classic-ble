@@ -21,6 +21,7 @@ casambi-classic-ble/
 ├── src/
 │   ├── casambi_classic_ble/    # Core library source code
 │   │   ├── __init__.py         # Exports CasambiDevice, CasambiScanner, CasambiCloud, Casambi, etc.
+│   │   ├── _adv.py             # Advertisement and beacon parsing helpers
 │   │   ├── _cache.py           # Local filesystem cache management for network topology & keys
 │   │   ├── _casambi.py         # High-level Casambi network session controller
 │   │   ├── _client.py          # BLE GATT client transport (CasambiClientClassic / Evolution)

@@ -67,6 +67,51 @@ def test_advertisement_unmatched_address_returns_none(mock_device: CasambiDevice
     assert result is None
 
 
+def test_advertisement_short_or_partial_address_does_not_match() -> None:
+    """T-004: Partial or substring MAC addresses must not match beacons (no substring in)."""
+    # Previously address="66" matched beacon 112233445566...
+    short_device = CasambiDevice(address="66", name="Short Address Device")
+    beacon = bytes.fromhex("11223344556601ff")
+    assert short_device.update_from_advertisement(mfr_data=beacon) is None
+
+    partial_device = CasambiDevice(address="AA:BB:CC", name="Partial Device")
+    beacon_aabb = bytes.fromhex("aabbccddeeff0180")
+    assert partial_device.update_from_advertisement(mfr_data=beacon_aabb) is None
+
+
+def test_advertisement_uuid_style_address_with_ble_device_source_works() -> None:
+    """T-004: UUID-style address (macOS CoreBluetooth) with a BLEDevice source works."""
+    from bleak.backends.device import BLEDevice
+
+    uuid_str = "12345678-1234-1234-1234-123456789ABC"
+    ble_dev = BLEDevice(address=uuid_str, name="macOS Casambi Node", details=None)
+    dev = CasambiDevice(address=ble_dev, name="macOS Casambi Node")
+
+    beacon = bytes.fromhex("aabbccddeeff0180")
+    # Passing ble_device matches the source directly
+    result = dev.update_from_advertisement(mfr_data=beacon, ble_device=ble_dev)
+    assert result is not None
+    assert result["on"] is True
+    assert result["level_percent"] == 50
+    # No pseudo 'id' in status (T-004)
+    assert "id" not in result
+    assert result.get("address_byte") == 0xAA
+
+    # Subsequent advertisement without ble_device matches via cached internal address
+    result2 = dev.update_from_advertisement(mfr_data=beacon)
+    assert result2 is not None
+    assert result2["on"] is True
+
+
+def test_advertisement_no_pseudo_id_in_status(mock_device: CasambiDevice) -> None:
+    """T-004: Verify status does not present manufacturer address byte as unit 'id'."""
+    beacon = bytes.fromhex("aabbccddeeff0180")
+    status = mock_device.update_from_advertisement(mfr_data=beacon)
+    assert status is not None
+    assert "id" not in status
+    assert status["address_byte"] == 0xAA
+
+
 def test_advertisement_valid_payload_parsing(mock_device: CasambiDevice) -> None:
     """Valid matching payload correctly parses state and level."""
     # Matches AA:BB:CC:DD:EE:FF, flags 0x01 (ON), level 0x80 (128 / 255 = 50%)
@@ -144,7 +189,24 @@ def test_parse_status_fuzz_random_bytes(mock_device: CasambiDevice) -> None:
         payload = bytes(rng.getrandbits(8) for _ in range(length))
         status = mock_device.parse_status(data=payload)
         assert isinstance(status, dict)
-        if length >= 3:
+        if length >= 3 and payload[0] == 0x03:
             assert "opcode" in status
             assert "id" in status
             assert "dimLevel" in status
+        else:
+            assert status == {}
+
+
+def test_parse_status_unknown_opcodes_return_empty_dict(mock_device: CasambiDevice) -> None:
+    """T-003: Non-0x03 opcodes (e.g. 0x07 auth, 0x01 turn_on, random) must return {}."""
+    assert mock_device.parse_status(data=bytes([0x07, 0x01, 0x80])) == {}
+    assert mock_device.parse_status(data=bytes([0x01, 0x01, 0x80])) == {}
+    assert mock_device.parse_status(data=bytes([0x02, 0x01, 0x80])) == {}
+    assert mock_device.parse_status(data=bytes([0x10, 0x01, 0x80])) == {}
+    assert mock_device.parse_status(data=bytes([0xFF, 0x01, 0x80])) == {}
+
+    # Verified opcode 0x03 parses successfully
+    status_03 = mock_device.parse_status(data=bytes([0x03, 0x01, 0x80]))
+    assert status_03["opcode"] == "0x03"
+    assert status_03["id"] == 1
+    assert status_03["on"] is True

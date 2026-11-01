@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5] - 2026-11-01
+
+### Fixed
+- Fixed GATT notifications never reaching `register_state_callback` subscribers in `CasambiDevice` (T-002).
+- Replaced global `_last_notified_state` tuple with per-unit deduplication dictionary to prevent multi-unit state collisions.
+- Isolated exceptions in state change and raw notification callbacks to prevent subscriber crashes from breaking BLE notification processing.
+
 ## [0.3.4] - 2026-11-01
 
 ### Fixed

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0] - 2026-11-01
+
+### Added
+- **Cryptographic Compatibility Contract & Golden Vectors (P0.2):**
+  - Added session golden vectors in `fixtures/golden_vectors.json` for Visitor (4-byte truncated CMAC, header `0x02`) and Manager (16-byte CMAC, header `0x03`) roles with provenance tracking.
+  - Implemented independent RFC 4493 CMAC reference assertions in `test_encryption.py`.
+  - Enforced strict constructor invariants on `ClassicEncryptor`: requires exactly 16-byte AES keys and `sig_len` in `(4, 16)`.
+  - Added negative test suite verifying rejection of corrupted signatures, corrupted payloads, wrong keys, wrong connection hashes, short/empty packets, and counter anti-replay checks.
+  - Formalized wire protocol specification in `docs/protocol.md` with hardware provenance matrix.
+- **Classic-Only Protocol Boundary Enforcement & Evolution Rejection (P0.4):**
+  - Defined explicit version bounds (`MIN_SUPPORTED_CLASSIC_VERSION = 5`, `MAX_SUPPORTED_CLASSIC_VERSION = 9`, `FIRST_UNSUPPORTED_PROTOCOL_VERSION = 10`).
+  - Added runtime check in `exchangeKey()` rejecting non-conformant (`<5`) or Evolution (`>=10`) firmware before starting notifications or issuing command writes.
+  - Enforced strict service UUID resolution in `CasambiDevice.connect()`: rejects non-Classic or Evolution devices lacking `FE4D` or `FE3D` GATT services with `CasambiDeviceError`.
+  - Added 36 automated unit tests in `test_evolution_rejection.py` verifying boundary behavior, rejection timing before authentication, and secret sanitization in errors.
+
+### Fixed
+- **Raw Packet Payload in Malformed Frame Error Logs & Exceptions:**
+  - Guaranteed that all malformed, truncated, or invalid signature packet detections log at `ERROR` level and raise exceptions containing the full raw packet hex payload (`packet.hex()`, `data.hex()`), providing full visibility for ongoing reverse-engineering and packet diagnostics.
+
 ## [0.6.0] - 2026-11-01
 
 ### Breaking Changes

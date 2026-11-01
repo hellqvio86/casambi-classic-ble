@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.1] - 2026-11-01
+
+### Fixed
+- **API Signature Backward & Forward Compatibility:**
+  - Added `unit` keyword argument alias alongside `target` to `set_unit_state`, `set_level`, `set_vertical`, `set_slider`, `set_white`, `set_color`, `set_temperature`, `set_color_xy`, `turn_on`, and `turn_off`.
+  - Added `rgb` keyword argument alias alongside `rgb_color` and `rgbColor` to `set_color` / `setColor`.
+  - Added `xy` keyword argument alias alongside `xy_color` and `xyColor` to `set_color_xy` / `setColorXY`.
+  - Added `scene` keyword argument alias alongside `target` to `switch_to_scene` / `switchToScene`.
+  - Resolved `TypeError: Casambi.set_unit_state() got an unexpected keyword argument 'unit'` and `TypeError: got an unexpected keyword argument 'rgb'` in downstream Home Assistant integration callers.
+  - Added comprehensive automated signature binding and unit tests across all 32 keyword parameter combinations.
+
 ## [0.8.0] - 2026-11-01
 
 ### Added

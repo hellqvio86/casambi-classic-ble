@@ -314,16 +314,21 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | None = None,
+        unit: Unit | None = None,
         state: UnitState | None = None,
     ) -> None:
         """Set the state of one unit directly.
 
-        :param target: The targeted unit.
+        :param target: The targeted unit (can also be passed as ``unit``).
         :param state: The desired state.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         state_val = args[1] if len(args) > 1 else state
         if args:
             warnings.warn(
@@ -351,6 +356,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | None = None,
+        unit: Unit | None = None,
         state: UnitState | None = None,
     ) -> None:
         """Deprecated alias for set_unit_state."""
@@ -359,7 +365,7 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_unit_state(*args, target=target, state=state)
+        await self.set_unit_state(*args, target=target, unit=unit, state=state)
 
     async def set_control_value(
         self,
@@ -428,6 +434,7 @@ class Casambi:
     async def set_white_color_balance(
         self,
         *args: Any,
+        target: Unit | None = None,
         unit: Unit | None = None,
         value: int | None = None,
     ) -> None:
@@ -440,12 +447,17 @@ class Casambi:
         raw state bytes in-place and sends a ``SetState`` opcode, so all other
         controls (brightness, colour, temperature) are preserved.
 
-        :param unit: The target unit.  Must have a ``WHITECOLORBALANCE`` control.
+        :param target: The target unit (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param value: Raw balance level in range [0, 63].
         :raises ValueError: The unit does not support ``WHITECOLORBALANCE``, or value out of range.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        unit_val = args[0] if len(args) > 0 else unit
+        unit_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         value_val = args[1] if len(args) > 1 else value
         if args:
             warnings.warn(
@@ -465,6 +477,7 @@ class Casambi:
     async def setWhiteColorBalance(
         self,
         *args: Any,
+        target: Unit | None = None,
         unit: Unit | None = None,
         value: int | None = None,
     ) -> None:
@@ -474,12 +487,13 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_white_color_balance(*args, unit=unit, value=value)
+        await self.set_white_color_balance(*args, target=target, unit=unit, value=value)
 
     async def set_level(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         level: int | None = None,
     ) -> None:
         """Set the level (brightness) for one or multiple units.
@@ -488,13 +502,18 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param level: The desired level in range [0, 255]. If 0 the unit is turned off.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied level isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         level_val = args[1] if len(args) > 1 else level
         if args:
             warnings.warn(
@@ -514,6 +533,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         level: int | None = None,
     ) -> None:
         """Deprecated alias for set_level."""
@@ -522,12 +542,13 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_level(*args, target=target, level=level)
+        await self.set_level(*args, target=target, unit=unit, level=level)
 
     async def set_vertical(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         vertical: int | None = None,
     ) -> None:
         """Set the vertical (balance between top and bottom LED) for one or multiple units.
@@ -536,13 +557,18 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param vertical: The desired vertical balance in range [0, 255]. If 0 the unit is turned off.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied level isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         vertical_val = args[1] if len(args) > 1 else vertical
         if args:
             warnings.warn(
@@ -562,6 +588,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         vertical: int | None = None,
     ) -> None:
         """Deprecated alias for set_vertical."""
@@ -570,12 +597,13 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_vertical(*args, target=target, vertical=vertical)
+        await self.set_vertical(*args, target=target, unit=unit, vertical=vertical)
 
     async def set_slider(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         value: int | None = None,
     ) -> None:
         """Set the slider for one or multiple units.
@@ -584,13 +612,18 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param value: The desired value in range [0, 255].
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied level isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         value_val = args[1] if len(args) > 1 else value
         if args:
             warnings.warn(
@@ -610,6 +643,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         value: int | None = None,
     ) -> None:
         """Deprecated alias for set_slider."""
@@ -618,12 +652,13 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_slider(*args, target=target, value=value)
+        await self.set_slider(*args, target=target, unit=unit, value=value)
 
     async def set_white(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         level: int | None = None,
     ) -> None:
         """Set the white level for one or multiple units.
@@ -632,13 +667,18 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param level: The desired level in range [0, 255].
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied level isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         level_val = args[1] if len(args) > 1 else level
         if args:
             warnings.warn(
@@ -658,6 +698,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         level: int | None = None,
     ) -> None:
         """Deprecated alias for set_white."""
@@ -666,14 +707,16 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_white(*args, target=target, level=level)
+        await self.set_white(*args, target=target, unit=unit, level=level)
 
     async def set_color(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         rgb_color: tuple[int, int, int] | None = None,
         rgbColor: tuple[int, int, int] | None = None,
+        rgb: tuple[int, int, int] | None = None,
     ) -> None:
         """Set the rgb color for one or multiple units.
 
@@ -681,14 +724,27 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
-        :param rgb_color: The desired color as a tuple of three ints in range [0, 255].
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
+        :param rgb_color: The desired color as a tuple of three ints in range [0, 255] (can also be passed as ``rgb``).
+        :param rgbColor: Deprecated alias for ``rgb_color``.
+        :param rgb: Alias for ``rgb_color``.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied rgb_color isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
-        color_val = args[1] if len(args) > 1 else (rgb_color if rgb_color is not None else rgbColor)
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
+        color_val = (
+            args[1]
+            if len(args) > 1
+            else (
+                rgb_color if rgb_color is not None else (rgbColor if rgbColor is not None else rgb)
+            )
+        )
         if args or rgbColor is not None:
             warnings.warn(
                 "Positional arguments or rgbColor are deprecated; use set_color(target=..., rgb_color=...) instead.",
@@ -705,8 +761,10 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         rgbColor: tuple[int, int, int] | None = None,
         rgb_color: tuple[int, int, int] | None = None,
+        rgb: tuple[int, int, int] | None = None,
     ) -> None:
         """Deprecated alias for set_color."""
         warnings.warn(
@@ -714,12 +772,15 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_color(*args, target=target, rgb_color=rgb_color, rgbColor=rgbColor)
+        await self.set_color(
+            *args, target=target, unit=unit, rgb_color=rgb_color, rgbColor=rgbColor, rgb=rgb
+        )
 
     async def set_temperature(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         temperature: int | None = None,
     ) -> None:
         """Set the temperature for one or multiple units.
@@ -728,13 +789,18 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :param temperature: The desired temperature in degrees Kelvin.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied temperature isn't in range
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         temp_val = args[1] if len(args) > 1 else temperature
         if args:
             warnings.warn(
@@ -752,6 +818,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         temperature: int | None = None,
     ) -> None:
         """Deprecated alias for set_temperature."""
@@ -760,14 +827,16 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_temperature(*args, target=target, temperature=temperature)
+        await self.set_temperature(*args, target=target, unit=unit, temperature=temperature)
 
     async def set_color_xy(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         xy_color: tuple[float, float] | None = None,
         xyColor: tuple[float, float] | None = None,
+        xy: tuple[float, float] | None = None,
     ) -> None:
         """Set the xy color for one or multiple units.
 
@@ -775,14 +844,25 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
-        :param xy_color: The desired color as a pair of floats in the range [0.0, 1.0].
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
+        :param xy_color: The desired color as a pair of floats in the range [0.0, 1.0] (can also be passed as ``xy``).
+        :param xyColor: Deprecated alias for ``xy_color``.
+        :param xy: Alias for ``xy_color``.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises ValueError: The supplied xy_color isn't in range or not supported by the supplied unit.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
-        color_val = args[1] if len(args) > 1 else (xy_color if xy_color is not None else xyColor)
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
+        color_val = (
+            args[1]
+            if len(args) > 1
+            else (xy_color if xy_color is not None else (xyColor if xyColor is not None else xy))
+        )
         if args or xyColor is not None:
             warnings.warn(
                 "Positional arguments or xyColor are deprecated; use set_color_xy(target=..., xy_color=...) instead.",
@@ -808,8 +888,10 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
         xyColor: tuple[float, float] | None = None,
         xy_color: tuple[float, float] | None = None,
+        xy: tuple[float, float] | None = None,
     ) -> None:
         """Deprecated alias for set_color_xy."""
         warnings.warn(
@@ -817,12 +899,15 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.set_color_xy(*args, target=target, xy_color=xy_color, xyColor=xyColor)
+        await self.set_color_xy(
+            *args, target=target, unit=unit, xy_color=xy_color, xyColor=xyColor, xy=xy
+        )
 
     async def turn_on(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
     ) -> None:
         """Turn one or multiple units on to their last level.
 
@@ -830,11 +915,16 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         if args:
             warnings.warn(
                 "Positional arguments are deprecated; use turn_on(target=...) instead.",
@@ -848,6 +938,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
     ) -> None:
         """Deprecated alias for turn_on."""
         warnings.warn(
@@ -855,12 +946,13 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.turn_on(*args, target=target)
+        await self.turn_on(*args, target=target, unit=unit)
 
     async def turn_off(
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
     ) -> None:
         """Turn one or multiple units off.
 
@@ -868,11 +960,16 @@ class Casambi:
         If ``target`` is of type ``Group`` the whole group is affected.
         if ``target`` is of type ``None`` all units in the network are affected.
 
-        :param target: One or multiple targeted units.
+        :param target: One or multiple targeted units (can also be passed as ``unit``).
+        :param unit: Alias for ``target``.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            unit
+            if unit is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         if args:
             warnings.warn(
                 "Positional arguments are deprecated; use turn_off(target=...) instead.",
@@ -886,6 +983,7 @@ class Casambi:
         self,
         *args: Any,
         target: Unit | Group | None = None,
+        unit: Unit | Group | None = None,
     ) -> None:
         """Deprecated alias for turn_off."""
         warnings.warn(
@@ -893,22 +991,28 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.turn_off(*args, target=target)
+        await self.turn_off(*args, target=target, unit=unit)
 
     async def switch_to_scene(
         self,
         *args: Any,
         target: Scene | None = None,
+        scene: Scene | None = None,
         level: int = 0xFF,
     ) -> None:
         """Switch the network to a predefined scene.
 
-        :param target: The scene to switch to.
+        :param target: The scene to switch to (can also be passed as ``scene``).
+        :param scene: Alias for ``target``.
         :param level: An optional relative brightness for all units in the scene.
         :return: Nothing is returned by this function. To get the new state register a change handler.
         :raises BluetoothError: An error occurred in the bluetooth stack.
         """
-        target_val = args[0] if len(args) > 0 else target
+        target_val = (
+            scene
+            if scene is not None
+            else (target if target is not None else (args[0] if len(args) > 0 else None))
+        )
         level_val = args[1] if len(args) > 1 else level
         if args:
             warnings.warn(
@@ -924,6 +1028,7 @@ class Casambi:
         self,
         *args: Any,
         target: Scene | None = None,
+        scene: Scene | None = None,
         level: int = 0xFF,
     ) -> None:
         """Deprecated alias for switch_to_scene."""
@@ -932,7 +1037,7 @@ class Casambi:
             DeprecationWarning,
             stacklevel=2,
         )
-        await self.switch_to_scene(*args, target=target, level=level)
+        await self.switch_to_scene(*args, target=target, scene=scene, level=level)
 
     async def _send(
         self, target: Unit | Group | Scene | None, state: bytes, opcode: OpCode

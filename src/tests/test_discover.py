@@ -5,7 +5,7 @@ from bleak.exc import BleakDBusError, BleakError
 
 from casambi_classic_ble._constants import CASA_UUID
 from casambi_classic_ble._discover import discover
-from casambi_classic_ble.errors import BluetoothError
+from casambi_classic_ble.exceptions import BluetoothError
 
 
 @pytest.mark.asyncio

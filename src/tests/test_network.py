@@ -18,7 +18,7 @@ from casambi_classic_ble._network import (
     Network,
     _NetworkSession,
 )
-from casambi_classic_ble.errors import (
+from casambi_classic_ble.exceptions import (
     AuthenticationError,
     NetworkNotFoundError,
     NetworkOnlineUpdateNeededError,
@@ -33,7 +33,7 @@ class _ForeignControlType(Enum):
 
 @pytest.fixture
 def mock_cache(tmp_path):
-    cache = Cache(cachePath=tmp_path)
+    cache = Cache(cache_path=tmp_path)
     cache._uuid = "00112233-4455-6677-8899-aabbccddeeff"
     return cache
 
@@ -97,7 +97,7 @@ async def test_network_get_network_id_success(mock_cache):
         httpClient=client,
         cache=mock_cache,
     )
-    await net.getNetworkId(forceOffline=False)
+    await net.get_network_id(force_offline=False)
     assert net._id == "net-id-123"
 
     # Verify cached to disk
@@ -105,9 +105,13 @@ async def test_network_get_network_id_success(mock_cache):
         cached_id = await (p / NETWORK_ID_CACHE_FILE).read_text()
         assert cached_id == "net-id-123"
 
-    # Second call with forceOffline=True uses cache
-    await net.getNetworkId(forceOffline=True)
+    # Second call with force_offline=True uses cache
+    await net.get_network_id(force_offline=True)
     assert net._id == "net-id-123"
+
+    # Verify deprecated alias emits warning
+    with pytest.deprecated_call():
+        await net.getNetworkId(forceOffline=True)
 
 
 @pytest.mark.asyncio
@@ -121,26 +125,26 @@ async def test_network_get_network_id_errors(mock_cache):
 
     # forceOffline without cache
     with pytest.raises(NetworkOnlineUpdateNeededError):
-        await net.getNetworkId(forceOffline=True)
+        await net.get_network_id(force_offline=True)
 
     # 404 NOT_FOUND
     resp_404 = MagicMock(spec=httpx.Response)
     resp_404.status_code = httpx.codes.NOT_FOUND
     client.get.return_value = resp_404
     with pytest.raises(NetworkNotFoundError):
-        await net.getNetworkId(forceOffline=False)
+        await net.get_network_id(force_offline=False)
 
     # 500 SERVER ERROR
     resp_500 = MagicMock(spec=httpx.Response)
     resp_500.status_code = httpx.codes.INTERNAL_SERVER_ERROR
     client.get.return_value = resp_500
     with pytest.raises(NetworkNotFoundError):
-        await net.getNetworkId(forceOffline=False)
+        await net.get_network_id(force_offline=False)
 
     # RequestError without cache
     client.get.side_effect = httpx.RequestError("Network down")
     with pytest.raises(NetworkOnlineUpdateNeededError):
-        await net.getNetworkId(forceOffline=False)
+        await net.get_network_id(force_offline=False)
 
 
 @pytest.mark.asyncio
@@ -171,13 +175,17 @@ async def test_network_login_success_and_failure(mock_cache):
         httpClient=client,
         cache=mock_cache,
     )
-    await net.logIn(password="secret-pass", forceOffline=False)
+    await net.log_in(password="secret-pass", force_offline=False)
     assert net.authenticated()
     assert net._session is not None
     assert net._session.session == "session-token-xyz"
 
     # Calling again while authenticated returns immediately
-    await net.logIn(password="secret-pass", forceOffline=False)
+    await net.log_in(password="secret-pass", force_offline=False)
+
+    # Verify deprecated alias emits warning
+    with pytest.deprecated_call():
+        await net.logIn(password="secret-pass", forceOffline=False)
 
     # Login failure
     net._session = None
@@ -187,7 +195,7 @@ async def test_network_login_success_and_failure(mock_cache):
     client.post.return_value = resp_fail
 
     with pytest.raises(AuthenticationError):
-        await net.logIn(password="wrong-pass", forceOffline=False)
+        await net.log_in(password="wrong-pass", force_offline=False)
 
 
 @pytest.mark.asyncio
@@ -391,7 +399,7 @@ async def test_legacy_network_id_migration(mock_cache):
         httpClient=AsyncMock(),
         cache=mock_cache,
     )
-    await net.getNetworkId(forceOffline=True)
+    await net.get_network_id(force_offline=True)
     assert net._id == "migrated-net-id"
 
     # Assert migrated to new file and legacy unlinked

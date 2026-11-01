@@ -30,6 +30,23 @@ Classic networks rely on different GATT services (`0xFE3D`, `0xFE4D`), different
 
 ---
 
+## Which API Should I Use?
+
+`casambi-classic-ble` provides two client interfaces depending on your integration needs:
+
+| Capability / Requirement | `CasambiDevice` | `Casambi` |
+|---|---|---|
+| **Primary Use Case** | Direct BLE GATT control for single nodes or mesh gateway | Full network topology discovery, scene switching, group control |
+| **Downstream Consumer** | [`casambi-classic-bt-hass`](https://github.com/hellqvio86/casambi-classic-bt-hass) (Home Assistant) | Standalone network automation & scripting tools |
+| **Cloud / Topology Dependency** | **Zero.** Connects directly via Bluetooth address. | Requires network configuration via Casambi Cloud or local cache. |
+| **Authentication** | Optional network password write (`0x07` MD5 hash). | Challenge-response authentication with CMAC-signed packets & KeyStore. |
+| **Unit Targeting** | Target any unit ID directly (`unit_id=1`). | High-level `Unit` and `Group` model instances. |
+| **Scene Support** | Not supported directly. | Native `switch_to_scene()` support. |
+| **State Feedback** | Passive BLE manufacturer advertisement beacons (`0x03C3`). | BLE GATT notification stream or Cloud WebSocket bridge. |
+| **Verified Hardware** | Vadsbo LD220WCM, LD220WCM_onoff, CBU-PWM4, AIMOTION GLOW | Classic firmware networks (protocol versions 1–9). |
+
+---
+
 ## Features
 
 - 🎯 **Classic-First Architecture:** Tailored specifically for Casambi Classic firmware devices.

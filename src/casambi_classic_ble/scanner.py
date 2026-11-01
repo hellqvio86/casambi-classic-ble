@@ -40,7 +40,7 @@ class CasambiScanner:
             is_casambi = False
             uuids = [uuid.lower() for uuid in (adv_data.service_uuids or [])]
 
-            # Check by Service UUID (Classic or Evolution)
+            # Check by Service UUID (V1 or V2)
             if CasambiUUIDs.SERVICE_V1.lower() in uuids or CasambiUUIDs.SERVICE_V2.lower() in uuids:
                 is_casambi = True
 

@@ -113,13 +113,14 @@ class KeyStore:
 
             self._logger.debug(f"Saved {len(self._keys)} keys.")
 
-    async def addKey(self, dict: dict[str, Any]) -> None:
-        if "id" not in dict:
+    async def add_key(self, *, key_dict: dict[str, Any]) -> None:
+        """Add a key dictionary to the store."""
+        if "id" not in key_dict:
             raise KeyError("id")
         try:
-            key_id = int(dict["id"])
+            key_id = int(key_dict["id"])
         except (ValueError, TypeError) as err:
-            raise ValueError(f"Invalid key id: {dict.get('id')}") from err
+            raise ValueError(f"Invalid key id: {key_dict.get('id')}") from err
         if key_id < 0:
             raise ValueError("id")
 
@@ -127,32 +128,32 @@ class KeyStore:
             self._logger.debug(f"Key with id {key_id} already exists. Skipping...")
             return
 
-        if "type" not in dict:
+        if "type" not in key_dict:
             raise KeyError("type")
         try:
-            key_type = int(dict["type"])
+            key_type = int(key_dict["type"])
         except (ValueError, TypeError) as err:
-            raise ValueError(f"Invalid key type: {dict.get('type')}") from err
+            raise ValueError(f"Invalid key type: {key_dict.get('type')}") from err
         if key_type < 0 or key_type > 0xFF:
             raise ValueError("type")
 
-        if "role" not in dict:
+        if "role" not in key_dict:
             raise KeyError("role")
         try:
-            role = int(dict["role"])
+            role = int(key_dict["role"])
         except (ValueError, TypeError) as err:
-            raise ValueError(f"Invalid key role: {dict.get('role')}") from err
+            raise ValueError(f"Invalid key role: {key_dict.get('role')}") from err
         if role < 0 or role > 3:
             raise ValueError("role")
 
-        if "name" not in dict:
+        if "name" not in key_dict:
             raise KeyError("name")
-        name = str(dict["name"])
+        name = str(key_dict["name"])
 
-        if "key" not in dict:
+        if "key" not in key_dict:
             raise KeyError("key")
         try:
-            key_bytes = binascii.a2b_hex(str(dict["key"]))
+            key_bytes = binascii.a2b_hex(str(key_dict["key"]))
         except binascii.Error as err:
             raise ValueError("Invalid key hex format") from err
 
@@ -161,8 +162,18 @@ class KeyStore:
         self._logger.info(f"Added key {name} with role {role} to store.")
         await self._save()
 
-    async def setLegacyKey(self, key: str, isVisitor: bool) -> None:
-        keyRole = CLASSIC_AUTH_LEVEL_VISITOR if isVisitor else CLASSIC_AUTH_LEVEL_MANAGER
+    async def addKey(self, *args: Any, **kwargs: Any) -> None:
+        """Deprecated alias for add_key."""
+        warnings.warn(
+            "addKey is deprecated; use add_key instead.", DeprecationWarning, stacklevel=2
+        )
+        if args:
+            return await self.add_key(key_dict=args[0])
+        return await self.add_key(key_dict=kwargs.get("key_dict", kwargs.get("dict", {})))
+
+    async def set_legacy_key(self, *, key: str, is_visitor: bool) -> None:
+        """Store legacy visitor or manager key."""
+        keyRole = CLASSIC_AUTH_LEVEL_VISITOR if is_visitor else CLASSIC_AUTH_LEVEL_MANAGER
         try:
             keyBytes = binascii.a2b_hex(key)
         except binascii.Error as err:
@@ -181,13 +192,27 @@ class KeyStore:
         self._logger.info(f"Added legacy key with role {keyRole} to store.")
         await self._save()
 
-    async def clear(self, save: bool = False) -> None:
+    async def setLegacyKey(self, *args: Any, **kwargs: Any) -> None:
+        """Deprecated alias for set_legacy_key."""
+        warnings.warn(
+            "setLegacyKey is deprecated; use set_legacy_key instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        key = args[0] if len(args) > 0 else kwargs.get("key", "")
+        is_visitor = (
+            args[1] if len(args) > 1 else kwargs.get("is_visitor", kwargs.get("isVisitor", False))
+        )
+        return await self.set_legacy_key(key=key, is_visitor=is_visitor)
+
+    async def clear(self, *, save: bool = False) -> None:
         self._keys.clear()
         self._logger.info("Keystore cleared.")
         if save:
             await self._save()
 
-    def getKey(self) -> Key | None:
+    def get_key(self) -> Key | None:
+        """Return the highest-role active key."""
         key: Key | None = None
         for k in self._keys:
             if k.type == -1:  # Legacy key
@@ -198,10 +223,28 @@ class KeyStore:
                 key = k
         return key
 
-    def getLegacyKey(self, role: int) -> Key | None:
+    def getKey(self) -> Key | None:
+        """Deprecated alias for get_key."""
+        warnings.warn(
+            "getKey is deprecated; use get_key instead.", DeprecationWarning, stacklevel=2
+        )
+        return self.get_key()
+
+    def get_legacy_key(self, *, role: int) -> Key | None:
+        """Return legacy key matching the given role."""
         for k in self._keys:
             if k.type != -1:  # Not a legacy key
                 continue
             elif k.role == role:
                 return k
         return None
+
+    def getLegacyKey(self, *args: Any, **kwargs: Any) -> Key | None:
+        """Deprecated alias for get_legacy_key."""
+        warnings.warn(
+            "getLegacyKey is deprecated; use get_legacy_key instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        role = args[0] if args else kwargs.get("role", 0)
+        return self.get_legacy_key(role=role)

@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.5.0] - 2026-11-01
+
+### Added
+- **API Surface Documentation (A-001):**
+  - Added "Which API Should I Use?" comparative guide to `README.md` contrasting `CasambiDevice` vs `Casambi`.
+  - Added signed session protocol specification to `docs/protocol.md` detailing handshake, key derivation, and signed packet layout.
+- **Unified Exception Hierarchy (A-003):**
+  - Consolidated exception classes into `casambi_classic_ble.exceptions` (`CasambiException`, `CasambiError`, `BluetoothError`, `AuthenticationError`, `ProtocolError`, `ConnectionStateError`, `NetworkNotFoundError`, `BluetoothDeviceNotFoundError`, `CasambiDeviceNotFoundError`, etc.) and re-exported all from package root `__init__.py`.
+  - Converted `errors.py` into a backwards-compatible deprecation shim issuing `DeprecationWarning`.
+- **Snake_case & Keyword-Only Public API (A-004):**
+  - Modernized `Casambi`, `KeyStore`, `Network`, `Unit`, `Group`, `Scene`, and `Cache` with snake_case method and property names enforcing keyword-only arguments.
+  - Provided backwards-compatible deprecated camelCase wrappers for legacy consumers (`setLevel`, `turnOn`, `setUuid`, etc.) issuing `DeprecationWarning`.
+  - Added flexible parameter support for `Group` (`group_id`, `groupId`, `g_id`) and `Scene` (`scene_id`, `sceneId`, `s_id`).
+
+### Removed
+- **Evolution Protocol Code Removal (A-002):**
+  - Completely removed Evolution-only code paths (`CasambiClientEvolution`, `OperationsContextEvolution`, unused `Encryptor`, etc.).
+  - Protocol version checks in `_connect_client` now raise explicit `UnsupportedProtocolVersion` for protocol versions $\ge 10$ pointing users to upstream `casambi-bt`.
+- **Dependency Graph Cleanup (A-005):**
+  - Dropped unnecessary runtime dependency `multidict` from direct dependencies in `pyproject.toml`.
+
+### Fixed
+- **Cache Concurrency & Event Loop Safety (A-006):**
+  - Replaced global lock with loop- and path-keyed lock registry `_get_cache_lock()` in `_cache.py`.
+  - Added `get_default_cache_path()` resolving default cache location lazily at runtime rather than at import time.
+- **Cloud Client Robustness (A-007):**
+  - Added configurable `open_timeout` to WebSocket connection in `CasambiCloudWebSocket`.
+  - Switched from MAC-derived `uuid.uuid1()` to `uuid.uuid4()` for client command references to safeguard privacy.
+  - Mapped connection errors to `CasambiCloudApiException` and ensured clean connection state resetting on close.
+  - Sanitized sensitive session tokens and credentials from debug logging.
+
 ## [0.4.0] - 2026-11-01
 
 ### Breaking Changes

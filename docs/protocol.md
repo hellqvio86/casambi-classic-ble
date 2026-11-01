@@ -63,12 +63,40 @@ Casambi devices broadcast passive BLE manufacturer data using Company Identifier
 +------------------------------------+-----------------------------+
 ```
 
-- Byte 0..5: 6-byte hardware device address (often transmitted in reversed byte order by Classic nodes).
-- Byte 6..9: Rolling counter, network state, and unit status flags.
+- **Byte 0..5:** 6-byte hardware device address, broadcast in reversed byte order (`[::-1]`) by Classic nodes.
+- **Byte 6:** Status byte:
+  - **Bit 0 (`byte & 0x01`):** Verified Power State (`1` = On, `0` = Off).
+  - **Bits 1..7:** Rolling counter and unverified status flags.
+- **Byte 7:** Verified Dimmer Level (`0x00`–`0xFF`, mapped to 0%–100% brightness).
+- **Byte 8..9:** Unverified network state and unit flags.
 
 ---
 
-## 4. Capturing Protocol Frames with BTSnoop / Wireshark
+## 4. Signed Session Protocol (`Casambi` Stack)
+
+When using the full network session controller (`Casambi` and `CasambiClientClassic`), communication uses challenge-response authentication and CMAC-signed frames over GATT:
+
+### Challenge-Response Handshake
+1. **Challenge Request (`OpCode 0x01`):** Client connects and writes random challenge nonces to the Control characteristic.
+2. **Challenge Response (`OpCode 0x02`):** Node responds via notification with device nonces and the protocol version (Classic supported range: `1`–`9`).
+3. **Session Key Derivation:** The network visitor or manager key from `KeyStore` is combined with the exchanged nonces using AES-128 / CMAC to derive the active session encryption and signing keys.
+
+### Signed Opcode Invocation Packet Format
+Packets sent to the GATT Control characteristic in signed session mode follow this layout:
+```
++------------------+---------------+--------------+---------------------+-------------------+
+| Target Code (2B) | Opcode (1B)   | Seq No (1B)  | Payload (N Bytes)   | CMAC Signature(4B)|
++------------------+---------------+--------------+---------------------+-------------------+
+```
+- **Target Code (2B LE):** Encodes target unit ID, group ID, or broadcast (`0xFFFF`).
+- **Opcode (1B):** Operation command code (e.g. `SetLevel`, `SetColorXY`, etc.).
+- **Seq No (1B):** Monotonically incrementing per-session sequence counter.
+- **Payload:** Command-specific byte parameters (e.g. brightness level, xy coordinates).
+- **CMAC Signature (4B):** Truncated 4-byte CMAC calculated over header and payload with the session key to prevent spoofing.
+
+---
+
+## 5. Capturing Protocol Frames with BTSnoop / Wireshark
 
 To capture and inspect live frames for new devices or test fixtures:
 

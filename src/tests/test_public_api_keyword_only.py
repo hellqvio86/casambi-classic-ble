@@ -3,7 +3,7 @@
 import inspect
 from typing import Any
 
-from casambi_classic_ble import CasambiCloud, CasambiDevice, CasambiScanner
+from casambi_classic_ble import Casambi, CasambiCloud, CasambiDevice, CasambiScanner
 
 
 def check_keyword_only_signatures(
@@ -62,3 +62,9 @@ def test_casambi_cloud_public_methods_enforce_keyword_only() -> None:
     assert not violations, "Positional arguments detected on CasambiCloud:\n" + "\n".join(
         violations
     )
+
+
+def test_casambi_public_methods_enforce_keyword_only() -> None:
+    """Verify all public methods on Casambi require keyword-only arguments."""
+    violations = check_keyword_only_signatures(Casambi)
+    assert not violations, "Positional arguments detected on Casambi:\n" + "\n".join(violations)

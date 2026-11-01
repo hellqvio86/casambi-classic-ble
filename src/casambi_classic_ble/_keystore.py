@@ -1,8 +1,11 @@
 import binascii
+import json
 import logging
+import os
 import pickle
-from dataclasses import dataclass
-from typing import Final
+import warnings
+from dataclasses import asdict, dataclass
+from typing import Any, Final
 
 from ._cache import Cache
 from ._constants import CLASSIC_AUTH_LEVEL_MANAGER, CLASSIC_AUTH_LEVEL_VISITOR
@@ -17,7 +20,8 @@ class Key:
     key: bytes
 
 
-KEY_CACHE_FILE: Final = "keys.pck"
+KEY_CACHE_FILE: Final = "keys.json"
+LEGACY_KEY_CACHE_FILE: Final = "keys.pck"
 
 
 class KeyStore:
@@ -30,62 +34,145 @@ class KeyStore:
     async def load(self) -> None:
         self._logger.info("Loading keys...")
         async with self._cache as cachePath:
-            if not await (cachePath / KEY_CACHE_FILE).exists():
-                self._logger.debug("No cached keys.")
-                return
-            key_bytes = await (cachePath / KEY_CACHE_FILE).read_bytes()
-            self._keys = pickle.loads(key_bytes)
-            self._logger.debug(f"Loaded {len(self._keys)} keys.")
+            json_file = cachePath / KEY_CACHE_FILE
+            pickle_file = cachePath / LEGACY_KEY_CACHE_FILE
+
+            if await json_file.exists():
+                raw_json = await json_file.read_text()
+                try:
+                    data = json.loads(raw_json)
+                    loaded_keys: list[Key] = []
+                    for item in data:
+                        loaded_keys.append(
+                            Key(
+                                id=int(item["id"]),
+                                type=int(item["type"]),
+                                role=int(item["role"]),
+                                name=str(item["name"]),
+                                key=bytes.fromhex(item["key"]),
+                            )
+                        )
+                    self._keys = loaded_keys
+                    self._logger.debug(f"Loaded {len(self._keys)} keys from JSON.")
+                    return
+                except Exception as err:
+                    self._logger.warning(f"Failed to load keys from JSON cache: {err}")
+
+            if await pickle_file.exists():
+                warnings.warn(
+                    f"Legacy pickle key cache '{LEGACY_KEY_CACHE_FILE}' is deprecated and will be removed "
+                    f"in a future release. Migrating keys to secure JSON cache format.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                try:
+                    key_bytes = await pickle_file.read_bytes()
+                    self._keys = pickle.loads(key_bytes)
+                    self._logger.debug(f"Loaded {len(self._keys)} keys from legacy pickle cache.")
+                    # Automatically migrate to JSON format and remove old pickle file
+                    key_data = []
+                    for k in self._keys:
+                        d = asdict(k)
+                        d["key"] = k.key.hex()
+                        key_data.append(d)
+
+                    json_content = json.dumps(key_data, indent=2)
+                    json_file = cachePath / KEY_CACHE_FILE
+                    await json_file.write_text(json_content)
+                    try:
+                        os.chmod(str(json_file), 0o600)
+                    except OSError as err:
+                        self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+
+                    try:
+                        await pickle_file.unlink()
+                    except Exception as err:
+                        self._logger.debug(f"Could not remove old pickle cache file: {err}")
+                    return
+                except Exception as err:
+                    self._logger.warning(f"Failed to load legacy pickle key cache: {err}")
+
+            self._logger.debug("No cached keys.")
 
     async def _save(self) -> None:
+        await self._save_to_cache(self._cache)
+
+    async def _save_to_cache(self, cache: Cache) -> None:
         self._logger.info("Saving keys...")
-        async with self._cache as cachePath:
-            key_bytes = pickle.dumps(self._keys)
-            await (cachePath / KEY_CACHE_FILE).write_bytes(key_bytes)
+        async with cache as cachePath:
+            key_data = []
+            for k in self._keys:
+                d = asdict(k)
+                d["key"] = k.key.hex()
+                key_data.append(d)
+
+            json_content = json.dumps(key_data, indent=2)
+            json_file = cachePath / KEY_CACHE_FILE
+            await json_file.write_text(json_content)
+
+            # Ensure secure file permissions (0600: read/write owner only)
+            try:
+                os.chmod(str(json_file), 0o600)
+            except OSError as err:
+                self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+
             self._logger.debug(f"Saved {len(self._keys)} keys.")
 
-    async def addKey(self, dict: dict) -> None:
+    async def addKey(self, dict: dict[str, Any]) -> None:
         if "id" not in dict:
             raise KeyError("id")
-        id = int(dict["id"])
-        if id < 0:
+        try:
+            key_id = int(dict["id"])
+        except (ValueError, TypeError) as err:
+            raise ValueError(f"Invalid key id: {dict.get('id')}") from err
+        if key_id < 0:
             raise ValueError("id")
 
-        if any(filter(lambda k: k.id == id, self._keys)):  # type: ignore
-            self._logger.debug(f"Key with id {id} already exists. Skipping...")
+        if any(k.id == key_id for k in self._keys):
+            self._logger.debug(f"Key with id {key_id} already exists. Skipping...")
             return
 
         if "type" not in dict:
             raise KeyError("type")
-        type = int(dict["type"])
-        if type < 0 or type > 0xFF:
+        try:
+            key_type = int(dict["type"])
+        except (ValueError, TypeError) as err:
+            raise ValueError(f"Invalid key type: {dict.get('type')}") from err
+        if key_type < 0 or key_type > 0xFF:
             raise ValueError("type")
 
         if "role" not in dict:
             raise KeyError("role")
-        role = int(dict["role"])
+        try:
+            role = int(dict["role"])
+        except (ValueError, TypeError) as err:
+            raise ValueError(f"Invalid key role: {dict.get('role')}") from err
         if role < 0 or role > 3:
             raise ValueError("role")
 
         if "name" not in dict:
             raise KeyError("name")
-        name = dict["name"]
+        name = str(dict["name"])
 
         if "key" not in dict:
             raise KeyError("key")
         try:
-            key = binascii.a2b_hex(dict["key"])
-        except binascii.Error:
-            raise ValueError("key")
+            key_bytes = binascii.a2b_hex(str(dict["key"]))
+        except binascii.Error as err:
+            raise ValueError("Invalid key hex format") from err
 
-        keyObj = Key(id, type, role, name, key)
+        keyObj = Key(key_id, key_type, role, name, key_bytes)
         self._keys.append(keyObj)
         self._logger.info(f"Added key {name} with role {role} to store.")
         await self._save()
 
     async def setLegacyKey(self, key: str, isVisitor: bool) -> None:
         keyRole = CLASSIC_AUTH_LEVEL_VISITOR if isVisitor else CLASSIC_AUTH_LEVEL_MANAGER
-        keyBytes = binascii.a2b_hex(key)
+        try:
+            keyBytes = binascii.a2b_hex(key)
+        except binascii.Error as err:
+            raise ValueError("Invalid key hex format") from err
+
         for i, k in enumerate(self._keys):
             if k.type != -1:  # Not a legacy key
                 continue

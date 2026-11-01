@@ -5,10 +5,15 @@ import os
 import pickle
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Any, Final
+from typing import Any
 
 from ._cache import Cache
-from ._constants import CLASSIC_AUTH_LEVEL_MANAGER, CLASSIC_AUTH_LEVEL_VISITOR
+from ._constants import (
+    CLASSIC_AUTH_LEVEL_MANAGER,
+    CLASSIC_AUTH_LEVEL_VISITOR,
+    KEY_CACHE_FILE,
+    LEGACY_KEY_CACHE_FILE,
+)
 
 
 @dataclass()
@@ -18,10 +23,6 @@ class Key:
     role: int
     name: str
     key: bytes
-
-
-KEY_CACHE_FILE: Final = "casambi_lookup.json"
-LEGACY_KEY_CACHE_FILE: Final = "keys.pck"
 
 
 class KeyStore:

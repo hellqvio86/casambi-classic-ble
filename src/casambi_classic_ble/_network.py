@@ -3,13 +3,18 @@ import logging
 import pickle
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Final, cast
+from typing import cast
 
 import httpx
 from httpx import AsyncClient, RequestError
 
 from ._cache import Cache
-from ._constants import DEVICE_NAME, isClassicNetwork
+from ._constants import (
+    DEVICE_NAME,
+    SESSION_CACHE_FILE,
+    TYPES_CACHE_FILE,
+    isClassicNetwork,
+)
 from ._keystore import KeyStore
 from ._unit import Group, Scene, Unit, UnitControl, UnitControlType, UnitType
 from .errors import (
@@ -18,9 +23,6 @@ from .errors import (
     NetworkOnlineUpdateNeededError,
     NetworkUpdateError,
 )
-
-SESSION_CACHE_FILE: Final = "session.pck"
-TYPES_CACHE_FILE: Final = "types.pck"
 
 
 @dataclass()

@@ -129,7 +129,8 @@ async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_ca
     """Loading legacy pickle cache emits DeprecationWarning and migrates cleanly to JSON."""
     import pickle
 
-    from casambi_classic_ble._keystore import KEY_CACHE_FILE, LEGACY_KEY_CACHE_FILE, Key
+    from casambi_classic_ble._constants import KEY_CACHE_FILE, LEGACY_KEY_CACHE_FILE
+    from casambi_classic_ble._keystore import Key
 
     await test_cache.setUuid(uuid="test-legacy-net")
     async with test_cache as cachePath:
@@ -160,7 +161,16 @@ async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_ca
     assert retrieved.key == bytes.fromhex("11223344556677889900112233445566")
 
     # Verify JSON cache exists and legacy file was unlinked
+    from casambi_classic_ble.constants import (
+        KEY_CACHE_FILE as PUB_KEY_CACHE_FILE,
+    )
+    from casambi_classic_ble.constants import (
+        LEGACY_KEY_CACHE_FILE as PUB_LEGACY_KEY_CACHE_FILE,
+    )
+
+    assert PUB_KEY_CACHE_FILE == KEY_CACHE_FILE == "casambi_lookup.json"
+    assert PUB_LEGACY_KEY_CACHE_FILE == LEGACY_KEY_CACHE_FILE == "keys.pck"
+
     async with test_cache as cachePath:
         assert await (cachePath / KEY_CACHE_FILE).exists()
-        assert KEY_CACHE_FILE == "casambi_lookup.json"
         assert not await (cachePath / LEGACY_KEY_CACHE_FILE).exists()

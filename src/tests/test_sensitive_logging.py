@@ -6,7 +6,7 @@ import pytest
 
 from casambi_classic_ble._encryption import ClassicEncryptor
 from casambi_classic_ble.cloud.api import CasambiCloudAPI
-from casambi_classic_ble.cloud.websocket import CasambiCloudWebsocket
+from casambi_classic_ble.cloud.websocket import CasambiCloudWebsocket, mask_sensitive_data
 from casambi_classic_ble.device import CasambiDevice
 
 
@@ -137,3 +137,42 @@ async def test_websocket_open_logs_data_with_masked_sensitive_keys(
     assert any("ws_open response:" in m and "openWireSucceed" in m for m in log_messages)
     # Verify that sensitive session field is masked
     assert not any("secret-session-id-1234" in m for m in log_messages)
+
+
+def test_mask_sensitive_data() -> None:
+    """Verify mask_sensitive_data masks secrets in dicts, nested dicts, and lists."""
+    # Primitives pass through
+    assert mask_sensitive_data(42) == 42
+    assert mask_sensitive_data("hello") == "hello"
+    assert mask_sensitive_data(None) is None
+
+    # Dict with sensitive keys
+    payload = {
+        "wireStatus": "openWireSucceed",
+        "session": "secret_session",
+        "sessionId": "another_secret",
+        "token": "secret_token",
+        "password": "secret_pwd",
+        "apiKey": "secret_key",
+        "other": 123,
+    }
+    masked = mask_sensitive_data(payload)
+    assert masked["wireStatus"] == "openWireSucceed"
+    assert masked["other"] == 123
+    assert masked["session"] == "***"
+    assert masked["sessionId"] == "***"
+    assert masked["token"] == "***"
+    assert masked["password"] == "***"
+    assert masked["apiKey"] == "***"
+
+    # Nested structures
+    nested = {
+        "data": [{"token": "abc", "id": 1}, {"name": "test"}],
+        "config": {"sub": {"secret": "top_secret", "normal": "val"}},
+    }
+    masked_nested = mask_sensitive_data(nested)
+    assert masked_nested["data"][0]["token"] == "***"
+    assert masked_nested["data"][0]["id"] == 1
+    assert masked_nested["data"][1]["name"] == "test"
+    assert masked_nested["config"]["sub"]["secret"] == "***"
+    assert masked_nested["config"]["sub"]["normal"] == "val"

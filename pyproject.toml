@@ -92,6 +92,8 @@ filterwarnings = [
     "ignore::coverage.exceptions.CoverageWarning",
     # Allow running the test suite under PYTHONOPTIMIZE=1 (python -O) per S-004 / A-006
     "ignore:assertions not in test modules or plugins:pytest.PytestConfigWarning",
+    # anyio thread runner GC unraisable warning on older matrix versions
+    "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
 

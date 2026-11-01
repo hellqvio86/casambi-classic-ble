@@ -94,6 +94,7 @@ async def test_cache_without_uuid(tmp_path: pathlib.Path):
 
 def test_cache_multiple_event_loops(tmp_path: pathlib.Path):
     import asyncio
+    import gc
 
     async def run_cache_ops(path: pathlib.Path, uid: str):
         c = Cache(cache_path=path)
@@ -103,10 +104,14 @@ def test_cache_multiple_event_loops(tmp_path: pathlib.Path):
             f = cache_dir / f"{uid}.txt"
             await f.write_text("ok")
 
-    # Run on first event loop
-    asyncio.run(run_cache_ops(tmp_path, "loop1"))
-    # Run on second distinct event loop
-    asyncio.run(run_cache_ops(tmp_path, "loop2"))
+    for uid in ("loop1", "loop2"):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(run_cache_ops(tmp_path, uid))
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+    gc.collect()
 
     assert (tmp_path / "loop1" / "loop1.txt").exists()
     assert (tmp_path / "loop2" / "loop2.txt").exists()

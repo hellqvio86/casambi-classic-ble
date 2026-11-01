@@ -122,3 +122,55 @@ async def test_keystore_clear(test_cache: Cache):
 
     await ks.clear(save=True)
     assert ks.getLegacyKey(role=CLASSIC_AUTH_LEVEL_VISITOR) is None
+
+
+@pytest.mark.asyncio
+async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_cache: Cache):
+    """Loading legacy pickle cache emits DeprecationWarning and migrates cleanly to JSON."""
+    import pickle
+
+    from casambi_classic_ble._constants import KEY_CACHE_FILE, LEGACY_KEY_CACHE_FILE
+    from casambi_classic_ble._keystore import Key
+
+    await test_cache.setUuid(uuid="test-legacy-net")
+    async with test_cache as cachePath:
+        legacy_file = cachePath / LEGACY_KEY_CACHE_FILE
+        json_file = cachePath / KEY_CACHE_FILE
+        # Pre-populate legacy pickle cache
+        legacy_keys = [
+            Key(
+                id=10,
+                type=0,
+                role=1,
+                name="LegacyAdmin",
+                key=bytes.fromhex("11223344556677889900112233445566"),
+            )
+        ]
+        await legacy_file.write_bytes(pickle.dumps(legacy_keys))
+        assert await legacy_file.exists()
+        assert not await json_file.exists()
+
+    ks = KeyStore(cache=test_cache)
+
+    with pytest.deprecated_call(match="Legacy pickle key cache 'keys.pck' is deprecated"):
+        await ks.load()
+
+    retrieved = ks.getKey()
+    assert retrieved is not None
+    assert retrieved.name == "LegacyAdmin"
+    assert retrieved.key == bytes.fromhex("11223344556677889900112233445566")
+
+    # Verify JSON cache exists and legacy file was unlinked
+    from casambi_classic_ble.constants import (
+        KEY_CACHE_FILE as PUB_KEY_CACHE_FILE,
+    )
+    from casambi_classic_ble.constants import (
+        LEGACY_KEY_CACHE_FILE as PUB_LEGACY_KEY_CACHE_FILE,
+    )
+
+    assert PUB_KEY_CACHE_FILE == KEY_CACHE_FILE == "casambi_lookup.json"
+    assert PUB_LEGACY_KEY_CACHE_FILE == LEGACY_KEY_CACHE_FILE == "keys.pck"
+
+    async with test_cache as cachePath:
+        assert await (cachePath / KEY_CACHE_FILE).exists()
+        assert not await (cachePath / LEGACY_KEY_CACHE_FILE).exists()

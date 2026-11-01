@@ -45,7 +45,7 @@ class CasambiDevice:
         self._write_lock: asyncio.Lock = asyncio.Lock()
         self.last_state: dict[str, Any] = {}
         self._state_callbacks: list[Callable[[dict[str, Any]], None]] = []
-        self._last_notified_state: tuple[bool, float] | None = None
+        self._last_notified_states: dict[Any, tuple[bool, float]] = {}
         self._control_uuid = CasambiUUIDs.CONTROL_V1
         self._status_uuid = CasambiUUIDs.STATUS_V1
         self._session_key: bytes | None = None
@@ -241,6 +241,21 @@ class CasambiDevice:
             logger.error(f"Failed to read status char: {err}")
             return None
 
+    def _dispatch_state(self, *, status: dict[str, Any]) -> None:
+        """Dispatch state update to registered state callbacks with per-unit duplicate suppression."""
+        unit_key = status.get("id", self.address)
+        is_on = bool(status.get("on", False))
+        dim_level = float(status.get("dimLevel", 0.0))
+        current_state_tuple = (is_on, dim_level)
+
+        if self._last_notified_states.get(unit_key) != current_state_tuple:
+            self._last_notified_states[unit_key] = current_state_tuple
+            for cb in list(self._state_callbacks):
+                try:
+                    cb(status)
+                except Exception as err:
+                    logger.warning(f"Error in state change callback: {err}", exc_info=True)
+
     def _notification_handler(self, sender: Any, data: bytearray) -> None:
         """Handle incoming notifications from device"""
         hex_data = data.hex()
@@ -253,9 +268,13 @@ class CasambiDevice:
             level = status.get("level_percent", 0)
             unit = status.get("id", "Unknown")
             logger.info(f"    PARSED: Unit {unit} is {state_str} ({level}%)")
+            self._dispatch_state(status=status)
 
         if self._notification_callback:
-            self._notification_callback(data)
+            try:
+                self._notification_callback(data)
+            except Exception as err:
+                logger.warning(f"Error in notification callback: {err}", exc_info=True)
 
     def update_from_advertisement(self, *, mfr_data: bytes | bytearray) -> dict[str, Any] | None:
         """Update device state from passive advertisement data (ID 963)"""
@@ -298,14 +317,7 @@ class CasambiDevice:
             except Exception as err:
                 logger.warning(f"Error in notification callback: {err}", exc_info=True)
 
-        current_state_tuple = (is_on, dim_level)
-        if self._last_notified_state != current_state_tuple:
-            self._last_notified_state = current_state_tuple
-            for cb in list(self._state_callbacks):
-                try:
-                    cb(status)
-                except Exception as err:
-                    logger.warning(f"Error in state change callback: {err}", exc_info=True)
+        self._dispatch_state(status=status)
 
         return status
 

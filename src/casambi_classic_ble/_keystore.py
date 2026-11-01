@@ -20,7 +20,7 @@ class Key:
     key: bytes
 
 
-KEY_CACHE_FILE: Final = "keys.json"
+KEY_CACHE_FILE: Final = "casambi_lookup.json"
 LEGACY_KEY_CACHE_FILE: Final = "keys.pck"
 
 

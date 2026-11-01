@@ -162,4 +162,5 @@ async def test_keystore_legacy_pickle_migration_with_deprecation_warning(test_ca
     # Verify JSON cache exists and legacy file was unlinked
     async with test_cache as cachePath:
         assert await (cachePath / KEY_CACHE_FILE).exists()
+        assert KEY_CACHE_FILE == "casambi_lookup.json"
         assert not await (cachePath / LEGACY_KEY_CACHE_FILE).exists()

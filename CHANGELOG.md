@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6] - 2026-11-01
+
+### Fixed
+- Restricted `CasambiDevice.parse_status` to only parse verified status opcode `0x03` frames into unit states. Unhandled or non-status opcodes (e.g. `0x07`, `0x01`) safely return `{}` without overwriting `last_state` or corrupting unit tracking (T-003).
+- Refactored advertisement address extraction into helper module `_adv.py`. Replaced substring matching with exact 6-byte normalized MAC matching against reversed (Quirk #1) and forward beacon byte order. Supported macOS CoreBluetooth UUID devices via direct `BLEDevice` matching and applied `cb={"use_bdaddr": True}` in `scanner.py` and `connect()`. Removed pseudo unit `id` from beacon status payloads (T-004).
+- Verified 2-byte zero sequence wrap check in `CasambiClientClassic._sendInternal` skips `b"\x00\x00"` and consistently increments counter (T-005).
+
 ## [0.3.5] - 2026-11-01
 
 ### Fixed

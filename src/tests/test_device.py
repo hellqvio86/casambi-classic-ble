@@ -188,11 +188,38 @@ class TestCasambiDevice:
 
     def test_parse_status(self):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
-        status = device.parse_status(data=bytearray([0x01, 0x05, 0x80]))
+        # Opcode 0x03 is the verified status response opcode
+        status = device.parse_status(data=bytearray([0x03, 0x05, 0x80]))
 
         assert status["id"] == 5
         assert status["on"] is True
         assert status["dimLevel"] == pytest.approx(0.502, abs=0.01)
+
+        # T-003: Unknown opcodes return empty dict
+        assert device.parse_status(data=bytearray([0x07, 0x05, 0x80])) == {}
+        assert device.parse_status(data=bytearray([0x01, 0x05, 0x80])) == {}
+
+    def test_notification_handler_unknown_opcode_preserves_last_state(self):
+        """T-003: Unknown opcode frames must not overwrite last_state or trigger state callbacks."""
+        device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+        # Initialize with known state
+        device.last_state = {"id": 1, "on": True, "dimLevel": 1.0, "level_percent": 100}
+
+        cb = MagicMock()
+        device.register_state_callback(callback=cb)
+
+        # Send unknown opcode 0x07 notification frame
+        device._notification_handler(sender="char_uuid", data=bytearray([0x07, 0x02, 0x00]))
+
+        # last_state remains intact and state callback not dispatched
+        assert device.last_state == {"id": 1, "on": True, "dimLevel": 1.0, "level_percent": 100}
+        cb.assert_not_called()
+
+        # Send valid 0x03 opcode notification frame
+        device._notification_handler(sender="char_uuid", data=bytearray([0x03, 0x02, 0x80]))
+        assert device.last_state["id"] == 2
+        assert device.last_state["dimLevel"] == pytest.approx(0.502, abs=0.01)
+        cb.assert_called_once()
 
     def test_update_from_advertisement(self):
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
@@ -300,7 +327,8 @@ class TestCasambiDevice:
         device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
         received = []
         device.set_notification_callback(callback=lambda d: received.append(d))
-        device._notification_handler("test-sender", bytearray([0x01, 0x05, 0xFF]))
+        # Status response opcode 0x03
+        device._notification_handler("test-sender", bytearray([0x03, 0x05, 0xFF]))
         assert len(received) == 1
         assert device.last_state["id"] == 5
 

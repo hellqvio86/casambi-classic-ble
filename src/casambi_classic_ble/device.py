@@ -3,12 +3,14 @@
 import asyncio
 import hashlib
 import logging
+import platform
 import struct
 from collections.abc import Callable
 from typing import Any
 
 from bleak import BleakClient, BleakScanner, BLEDevice
 
+from ._adv import _internal_address, matches_advertisement_address
 from .constants import CasambiCommands, CasambiUUIDs
 from .exceptions import (
     CasambiCommandError,
@@ -37,6 +39,8 @@ class CasambiDevice:
             self.address = address
             self.name = name
             self._ble_device = None
+
+        self._internal_address: str | None = None
 
         self.client: BleakClient | None = client
         self.is_connected = False
@@ -90,7 +94,14 @@ class CasambiDevice:
 
                     # We'll do one scan and check multiple conditions for each discovered device
                     # This is much more reliable than multiple sequential find_device calls
-                    discovered = await BleakScanner.discover(timeout=timeout / 2, return_adv=True)
+                    if platform.system() == "Darwin":
+                        discovered = await BleakScanner.discover(
+                            timeout=timeout / 2, return_adv=True, cb={"use_bdaddr": True}
+                        )
+                    else:
+                        discovered = await BleakScanner.discover(
+                            timeout=timeout / 2, return_adv=True
+                        )
 
                     target_upper = self.address.upper()
                     target_reversed = None
@@ -114,10 +125,11 @@ class CasambiDevice:
                         else:
                             mfr_data = adv.manufacturer_data.get(963)
                             if mfr_data and len(mfr_data) >= 6:
-                                mfr_addr = ":".join(f"{b:02X}" for b in mfr_data[:6]).upper()
-                                if mfr_addr == target_upper:
+                                if matches_advertisement_address(
+                                    target_address=self.address, mfr_data=mfr_data
+                                ):
                                     logger.info(
-                                        f"Matched internal ID in Manufacturer Data: {mfr_addr} (Device: {dev_addr})"
+                                        f"Matched internal ID in Manufacturer Data (Device: {dev_addr})"
                                     )
                                     found = True
 
@@ -276,21 +288,39 @@ class CasambiDevice:
             except Exception as err:
                 logger.warning(f"Error in notification callback: {err}", exc_info=True)
 
-    def update_from_advertisement(self, *, mfr_data: bytes | bytearray) -> dict[str, Any] | None:
+    def update_from_advertisement(
+        self,
+        *,
+        mfr_data: bytes | bytearray,
+        ble_device: BLEDevice | None = None,
+    ) -> dict[str, Any] | None:
         """Update device state from passive advertisement data (ID 963)"""
         if not isinstance(mfr_data, (bytes, bytearray)) or len(mfr_data) < 8:
             return None
 
-        # Verify this data belongs to us (first 6 bytes match address digits)
-        addr_clean = self.address.replace(":", "").lower()
-        mfr_id_hex = bytes(mfr_data[:6]).hex().lower()
+        matched = False
+        # 1. Caller passed BLEDevice matching this instance (e.g. from scanner or macOS UUID)
+        if ble_device is not None:
+            if (
+                self._ble_device is not None and ble_device == self._ble_device
+            ) or ble_device.address.upper() == self.address.upper():
+                matched = True
 
-        # Note: Address can be reversed in some contexts, but internal ID is usually suffix-based
-        if mfr_id_hex not in addr_clean and addr_clean not in mfr_id_hex:
-            # Check if Reversed
-            rev_mfr = "".join(reversed([mfr_id_hex[i : i + 2] for i in range(0, 12, 2)]))
-            if rev_mfr not in addr_clean:
-                return None
+        # 2. Check cached internal address or target address against beacon MAC bytes
+        if not matched:
+            if self._internal_address and matches_advertisement_address(
+                target_address=self._internal_address, mfr_data=mfr_data
+            ):
+                matched = True
+            elif matches_advertisement_address(target_address=self.address, mfr_data=mfr_data):
+                matched = True
+
+        if not matched:
+            return None
+
+        # Cache internal address (reversed MAC order per quirk #1)
+        _, rev_mac = _internal_address(mfr_data=mfr_data)
+        self._internal_address = rev_mac
 
         flags = mfr_data[6]
         is_on = bool(flags & 0x01)
@@ -298,11 +328,11 @@ class CasambiDevice:
         dim_level = round(level_byte / 255.0, 3)
 
         status: dict[str, Any] = {
-            "id": int(mfr_data[0]),  # Approximation of unit ID if needed, though usually internal
             "on": is_on,
             "dimLevel": dim_level,
             "level_percent": round((level_byte / 255.0) * 100),
             "source": "passive_adv",
+            "address_byte": int(mfr_data[0]),
         }
 
         self.last_state = status
@@ -330,6 +360,12 @@ class CasambiDevice:
             return {}
 
         opcode = data[0]
+        # Only parse opcodes that have golden vector captures / hardware evidence (0x03)
+        # TODO(hardware-capture): Add parsers for additional opcodes when hardware captures are available
+        if opcode != 0x03:
+            logger.debug(f"Ignoring notification frame with unhandled opcode: {opcode:#04x}")
+            return {}
+
         # Casambi standard status fields
         status: dict[str, Any] = {
             "opcode": f"{opcode:#04x}",

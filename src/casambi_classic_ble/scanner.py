@@ -1,9 +1,11 @@
 """Casambi BLE device scanner"""
 
 import logging
+import platform
 
 from bleak import BleakScanner
 
+from ._adv import _internal_address
 from .constants import CasambiUUIDs
 from .device import CasambiDevice
 
@@ -27,7 +29,12 @@ class CasambiScanner:
         devices = []
         logger.info(f"Scanning for Casambi devices ({duration}s)...")
 
-        discovered = await BleakScanner.discover(timeout=duration, return_adv=True)
+        if platform.system() == "Darwin":
+            discovered = await BleakScanner.discover(
+                timeout=duration, return_adv=True, cb={"use_bdaddr": True}
+            )
+        else:
+            discovered = await BleakScanner.discover(timeout=duration, return_adv=True)
 
         for device, adv_data in discovered.values():
             is_casambi = False
@@ -53,21 +60,22 @@ class CasambiScanner:
                 )
                 state_info = ""
                 if mfr_data and hasattr(mfr_data, "__len__") and len(mfr_data) >= 8:
-                    # Parse Passive State
-                    real_address = ":".join(f"{b:02X}" for b in mfr_data[:6])
+                    # Parse Passive State using _internal_address helper
+                    # Classic nodes broadcast MAC in reversed byte order (Quirk #1)
+                    _, rev_address = _internal_address(mfr_data=mfr_data)
                     dim_level_byte = mfr_data[7]
                     is_on = mfr_data[6] & 0x01
                     pct = round((dim_level_byte / 255.0) * 100)
                     state_info = f" | State: {'ON' if is_on else 'OFF'} ({pct}%)"
                     logger.info(
-                        f"Discovered: {device.name} ({device.address}) | Internal: {real_address}{state_info}"
+                        f"Discovered: {device.name} ({device.address}) | Internal: {rev_address}{state_info}"
                     )
                 else:
                     logger.info(f"Discovered: {device.name} ({device.address})")
 
                 casambi_dev = CasambiDevice(address=device, name=device.name or "Casambi Device")
                 if mfr_data:
-                    casambi_dev.update_from_advertisement(mfr_data=mfr_data)
+                    casambi_dev.update_from_advertisement(mfr_data=mfr_data, ble_device=device)
                 devices.append(casambi_dev)
 
         logger.info(f"Found {len(devices)} Casambi device(s)")

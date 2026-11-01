@@ -118,7 +118,8 @@ from casambi_classic_ble import CasambiDevice
 device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
 def on_state_change(state: dict):
-    print(f"Unit {state['id']}: {'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
+    unit_str = f"Unit {state['id']}: " if "id" in state else ""
+    print(f"{unit_str}{'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
 
 # Register subscription callback (automatically deduplicates identical frames)
 unsubscribe = device.register_state_callback(callback=on_state_change)

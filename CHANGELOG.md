@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0] - 2026-11-01
+
+### Breaking Changes
+- **Removed Insecure Pickle Deserialization (P0.1):**
+  - Removed `import pickle` and all `pickle.loads()` calls from `KeyStore` and `Network` cache loading.
+  - Legacy pickle caches (`keys.pck`, `session.pck`, `types.pck`) are no longer unpickled or migrated automatically; they are safely ignored with a warning requesting re-authentication to prevent arbitrary code execution vulnerabilities.
+  - Enforced strict schema validation when deserializing JSON cache files (`casambi_lookup.json`, `casambi_session.json`, `casambi_types.json`), requiring exact types and 16-byte cryptographic key lengths to prevent deserialization vulnerabilities and corrupted cache poisoning.
+
+### Fixed
+- **Disconnect Callback State Ordering (Eager Reconnect Fix):**
+  - Set `self._connectionState = ConnectionState.NONE` before executing `self._disconnectedCallback()` in `_client.py`.
+  - Fixes race condition where eager background tasks in Python 3.12+ / Home Assistant run `reconnect()` while `_connectionState` is still `AUTHENTICATED`, causing `reconnect()` to return early without reconnecting and leaving the mesh disconnected.
+  - Avoids overwriting newly established connection state if an eager callback immediately restores the connection.
+- **BlueZ D-Bus Resource Cleanup on Disconnection:**
+  - Removed `is_connected` guard on `_gattClient.disconnect()` in `_client.py` and `device.py`.
+  - Ensures Bleak always invokes `disconnect()` to cleanly unregister notifications and release private D-Bus bus handles on Linux/BlueZ even after an unexpected link drop, preventing frozen key exchanges on subsequent reconnection attempts.
+
 ## [0.5.1] - 2026-11-01
 
 ### Added

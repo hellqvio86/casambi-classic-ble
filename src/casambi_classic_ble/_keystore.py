@@ -1,7 +1,6 @@
 import binascii
 import json
 import logging
-import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -42,15 +41,26 @@ class KeyStore:
                 raw_json = await json_file.read_text()
                 try:
                     data = json.loads(raw_json)
+                    if not isinstance(data, list):
+                        raise ValueError(
+                            f"Expected list in {KEY_CACHE_FILE}, got {type(data).__name__}"
+                        )
                     loaded_keys: list[Key] = []
                     for item in data:
+                        if not isinstance(item, dict):
+                            raise ValueError(
+                                f"Expected dict in key entry, got {type(item).__name__}"
+                            )
+                        raw_key = bytes.fromhex(item["key"])
+                        if len(raw_key) != 16:
+                            raise ValueError(f"Key length must be 16 bytes, got {len(raw_key)}")
                         loaded_keys.append(
                             Key(
                                 id=int(item["id"]),
                                 type=int(item["type"]),
                                 role=int(item["role"]),
                                 name=str(item["name"]),
-                                key=bytes.fromhex(item["key"]),
+                                key=raw_key,
                             )
                         )
                     self._keys = loaded_keys
@@ -60,35 +70,12 @@ class KeyStore:
                     self._logger.warning(f"Failed to load keys from JSON cache: {err}")
 
             if await pickle_file.exists():
-                warnings.warn(
-                    f"Legacy pickle key cache '{LEGACY_KEY_CACHE_FILE}' is deprecated and will be removed "
-                    f"in a future release. Migrating keys to secure JSON cache format.",
-                    DeprecationWarning,
-                    stacklevel=2,
+                msg = (
+                    f"Legacy pickle key cache '{LEGACY_KEY_CACHE_FILE}' found, but pickle support "
+                    f"was removed in v0.6.0 for security. Legacy cache is ignored; please re-authenticate."
                 )
-                try:
-                    key_bytes = await pickle_file.read_bytes()
-                    self._keys = pickle.loads(key_bytes)
-                    self._logger.debug(f"Loaded {len(self._keys)} keys from legacy pickle cache.")
-                    # Automatically migrate to JSON format and remove old pickle file
-                    key_data = []
-                    for k in self._keys:
-                        d = asdict(k)
-                        d["key"] = k.key.hex()
-                        key_data.append(d)
-
-                    json_content = json.dumps(key_data, indent=2)
-                    json_file = cachePath / KEY_CACHE_FILE
-                    await json_file.write_text(json_content)
-                    set_secure_file_permissions(path=json_file)
-
-                    try:
-                        await pickle_file.unlink()
-                    except Exception as err:
-                        self._logger.debug(f"Could not remove old pickle cache file: {err}")
-                    return
-                except Exception as err:
-                    self._logger.warning(f"Failed to load legacy pickle key cache: {err}")
+                warnings.warn(msg, UserWarning, stacklevel=2)
+                self._logger.warning(msg)
 
             self._logger.debug("No cached keys.")
 

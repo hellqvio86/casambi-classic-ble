@@ -1,10 +1,22 @@
 """Pytest configuration and fixtures"""
 
+import json
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+
+
+@pytest.fixture
+def golden_vectors() -> dict[str, Any]:
+    """Load golden vectors fixture."""
+    fixture_path = Path(__file__).parent / "fixtures" / "golden_vectors.json"
+    with open(fixture_path, encoding="utf-8") as f:
+        data: dict[str, Any] = json.load(f)
+        return data
 
 
 @pytest.fixture

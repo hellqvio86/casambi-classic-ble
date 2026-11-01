@@ -63,7 +63,8 @@ Classic Casambi firmware supports multiple command payload variants depending on
 |---|---|---|---|---|---|---|
 | `turn_on` | `0x03` (`SET_LEVEL`) | 2-byte unit ID, level `0xFF` | `[Unit (2B LE)] [0xFF]` | Vadsbo LD220WCM, LD220WCM_onoff | Captured | Required by Classic firmware 26.x for reliable power toggle |
 | `turn_off` | `0x03` (`SET_LEVEL`) | 2-byte unit ID, level `0x00` | `[Unit (2B LE)] [0x00]` | Vadsbo LD220WCM, LD220WCM_onoff | Captured | Required by Classic firmware 26.x for reliable power toggle |
-| `set_level` | `0x03` (`SET_LEVEL`) | 1-byte unit ID, level `0x00..0xFF` | `[Unit (1B)] [Level (1B)]` | Vadsbo LD220WCM, CBU-PWM4 RGBW | Captured | Standard brightness adjustment |
+| `set_level` (unit) | `0x03` (`SET_LEVEL`) | 1-byte unit ID, level `0x00..0xFF` | `[Unit (1B)] [Level (1B)]` | Vadsbo LD220WCM, CBU-PWM4 RGBW | Captured | Standard unit brightness adjustment |
+| `set_level` (broadcast) | `0x03` (`SET_LEVEL`) | Broadcast unit `0xFFFF`, level `0x00..0xFF` | `[0xFF 0xFF] [Level (1B)]` | Vadsbo LD220WCM, LD220WCM_onoff | Derived | Broadcast brightness when `unit_id=None` |
 | `turn_on_broadcast` | `0x03` (`SET_LEVEL`) | Broadcast unit `0xFFFF`, level `0xFF` | `[0xFF 0xFF] [0xFF]` | Vadsbo LD220WCM, LD220WCM_onoff | Derived | Targets all reachable units in mesh |
 | `turn_off_broadcast` | `0x03` (`SET_LEVEL`) | Broadcast unit `0xFFFF`, level `0x00` | `[0xFF 0xFF] [0x00]` | Vadsbo LD220WCM, LD220WCM_onoff | Derived | Targets all reachable units in mesh |
 | `turn_on_by_address` | `0x81` (`TURN_LIGHT_ON_LONG`) | 6-byte target MAC/address | `[MAC Address (6B)]` | Vadsbo LD220WCM | Captured | Direct unicast power on without mesh unit ID |

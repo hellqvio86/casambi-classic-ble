@@ -142,9 +142,9 @@ async def test_websocket_open_logs_data_with_masked_sensitive_keys(
 def test_mask_sensitive_data() -> None:
     """Verify mask_sensitive_data masks secrets in dicts, nested dicts, and lists."""
     # Primitives pass through
-    assert mask_sensitive_data(42) == 42
-    assert mask_sensitive_data("hello") == "hello"
-    assert mask_sensitive_data(None) is None
+    assert mask_sensitive_data(data=42) == 42
+    assert mask_sensitive_data(data="hello") == "hello"
+    assert mask_sensitive_data(data=None) is None
 
     # Dict with sensitive keys
     payload = {
@@ -156,7 +156,7 @@ def test_mask_sensitive_data() -> None:
         "apiKey": "secret_key",
         "other": 123,
     }
-    masked = mask_sensitive_data(payload)
+    masked = mask_sensitive_data(data=payload)
     assert masked["wireStatus"] == "openWireSucceed"
     assert masked["other"] == 123
     assert masked["session"] == "***"
@@ -170,9 +170,15 @@ def test_mask_sensitive_data() -> None:
         "data": [{"token": "abc", "id": 1}, {"name": "test"}],
         "config": {"sub": {"secret": "top_secret", "normal": "val"}},
     }
-    masked_nested = mask_sensitive_data(nested)
+    masked_nested = mask_sensitive_data(data=nested)
     assert masked_nested["data"][0]["token"] == "***"
     assert masked_nested["data"][0]["id"] == 1
     assert masked_nested["data"][1]["name"] == "test"
     assert masked_nested["config"]["sub"]["secret"] == "***"
     assert masked_nested["config"]["sub"]["normal"] == "val"
+
+    # Custom sensitive_keys parameter
+    custom_payload = {"custom_secret": "my_secret_val", "public_info": "safe"}
+    masked_custom = mask_sensitive_data(data=custom_payload, sensitive_keys={"custom_secret"})
+    assert masked_custom["custom_secret"] == "***"
+    assert masked_custom["public_info"] == "safe"

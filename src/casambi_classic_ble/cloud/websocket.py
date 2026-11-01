@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Collection
 from typing import Any
 
 import websockets
@@ -12,24 +13,29 @@ from websockets.typing import Subprotocol
 
 _LOGGER = logging.getLogger(__name__)
 
-_SENSITIVE_KEYS: frozenset[str] = frozenset(
+DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset(
     {"session", "sessionid", "token", "password", "key", "apikey", "secret"}
 )
 
 
-def mask_sensitive_data(data: Any) -> Any:
+def mask_sensitive_data(
+    data: Any,
+    *,
+    sensitive_keys: Collection[str] = DEFAULT_SENSITIVE_KEYS,
+) -> Any:
     """Mask sensitive keys in nested mappings and sequences for safe logging."""
+    normalized_keys = {str(k).lower().replace("_", "") for k in sensitive_keys}
     if isinstance(data, dict):
         return {
             k: (
                 "***"
-                if str(k).lower().replace("_", "") in _SENSITIVE_KEYS
-                else mask_sensitive_data(v)
+                if str(k).lower().replace("_", "") in normalized_keys
+                else mask_sensitive_data(v, sensitive_keys=normalized_keys)
             )
             for k, v in data.items()
         }
     if isinstance(data, list):
-        return [mask_sensitive_data(item) for item in data]
+        return [mask_sensitive_data(item, sensitive_keys=normalized_keys) for item in data]
     return data
 
 
@@ -64,7 +70,7 @@ class CasambiCloudWebsocket:
         try:
             result = await self.web_sock.recv()
             data = json.loads(result)
-            safe_data = mask_sensitive_data(data)
+            safe_data = mask_sensitive_data(data=data)
             _LOGGER.debug(f"ws_open response: {safe_data}")
 
             if data.get("wireStatus") == "openWireSucceed":

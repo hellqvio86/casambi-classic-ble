@@ -1,3 +1,4 @@
+import json
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
@@ -5,6 +6,7 @@ import pytest
 
 from casambi_classic_ble._encryption import ClassicEncryptor
 from casambi_classic_ble.cloud.api import CasambiCloudAPI
+from casambi_classic_ble.cloud.websocket import CasambiCloudWebsocket
 from casambi_classic_ble.device import CasambiDevice
 
 
@@ -97,3 +99,41 @@ async def test_cloud_logging_no_session_leak(caplog: pytest.LogCaptureFixture) -
 
     for record in caplog.records:
         assert "sensitive-session-id-9999" not in record.getMessage()
+
+
+@pytest.mark.asyncio
+async def test_websocket_open_logs_data_with_masked_sensitive_keys(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify websocket open logs response data for debugging while masking sensitive tokens."""
+    caplog.set_level(logging.DEBUG)
+
+    ws = CasambiCloudWebsocket(
+        api_key="mock_key",
+        network_id="net-123",
+        session_id="secret-session-id-1234",
+    )
+
+    mock_sock = AsyncMock()
+    mock_sock.send = AsyncMock()
+    mock_sock.recv = AsyncMock(
+        return_value=json.dumps(
+            {
+                "wireStatus": "openWireSucceed",
+                "wire": 42,
+                "session": "secret-session-id-1234",
+            }
+        )
+    )
+
+    monkeypatch.setattr("websockets.connect", AsyncMock(return_value=mock_sock))
+
+    success = await ws.open()
+    assert success is True
+
+    # Verify that response data is logged for debugging
+    log_messages = [r.getMessage() for r in caplog.records]
+    assert any("ws_open response:" in m and "openWireSucceed" in m for m in log_messages)
+    # Verify that sensitive session field is masked
+    assert not any("secret-session-id-1234" in m for m in log_messages)

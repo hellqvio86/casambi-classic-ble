@@ -44,7 +44,19 @@ class CasambiCloudWebsocket:
         try:
             result = await self.web_sock.recv()
             data = json.loads(result)
-            _LOGGER.debug("Websocket open handshake received")
+            safe_data = (
+                {
+                    k: (
+                        "***"
+                        if k.lower() in ("session", "sessionid", "token", "password", "key")
+                        else v
+                    )
+                    for k, v in data.items()
+                }
+                if isinstance(data, dict)
+                else data
+            )
+            _LOGGER.debug(f"ws_open response: {safe_data}")
 
             if data.get("wireStatus") == "openWireSucceed":
                 self.connected = True

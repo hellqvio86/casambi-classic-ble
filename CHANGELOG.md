@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.4] - 2026-11-01
+
+### Added
+- **BLE Advertisement Parsing & Flag Isolation (P1.6):**
+  - Added `ParsedAdvertisement` and `parse_advertisement` in `_adv.py` (`CASAMBI_MANUFACTURER_ID = 0x03C3` / `963`), strictly separating verified fields (`on`, `dimLevel`, `level_percent`, `address_byte`, `reversed_mac`, `forward_mac`) from unverified/inferred flags (`status["unverified"]`).
+  - Hardened `CasambiDevice.update_from_advertisement` against cross-network and cross-device address collisions when `ble_device` or manufacturer payload MAC bytes mismatch, and locked `_internal_address` to the matched MAC byte order.
+  - Added `_seen_origins` expiry pruning in `SwitchEventDecoder` (`_switch.py`) and verified rolling counter wraparound and out-of-order frames.
+- **Command Packing Validation & Hardware Compatibility Matrix (P1.7):**
+  - Validated target types (`Scene` rejected for non-`SetLevel` opcodes) and target ID bounds (`0..255`) in `OperationsContextClassic.prepare_operation`.
+  - Validated RGB channel (`0..255`) and Kelvin temperature bounds in `UnitState`.
+  - Added parameterized tests for the Hardware Compatibility Matrix and 16 `classic_session_operations` golden vectors.
+
 ## [0.8.3] - 2026-11-01
 
 ### Added

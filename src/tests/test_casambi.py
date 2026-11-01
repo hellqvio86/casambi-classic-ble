@@ -116,45 +116,57 @@ def test_casambi_properties_connected(mock_casambi):
 
 @pytest.mark.asyncio
 async def test_casambi_control_methods(mock_casambi, dummy_unit):
-    # set_level
+    # set_level with unit= and target=
     await mock_casambi.set_level(target=dummy_unit, level=128)
     mock_casambi._casaClient.send.assert_called()
+    await mock_casambi.set_level(unit=dummy_unit, level=128)
 
     with pytest.raises(ValueError):
         await mock_casambi.set_level(target=dummy_unit, level=-1)
     with pytest.raises(ValueError):
         await mock_casambi.set_level(target=dummy_unit, level=256)
 
-    # set_vertical
+    # set_vertical with target= and unit=
     await mock_casambi.set_vertical(target=dummy_unit, vertical=64)
+    await mock_casambi.set_vertical(unit=dummy_unit, vertical=64)
     with pytest.raises(ValueError):
         await mock_casambi.set_vertical(target=dummy_unit, vertical=300)
 
-    # set_white
+    # set_white with target= and unit=
     await mock_casambi.set_white(target=dummy_unit, level=100)
+    await mock_casambi.set_white(unit=dummy_unit, level=100)
     with pytest.raises(ValueError):
         await mock_casambi.set_white(target=dummy_unit, level=300)
 
-    # set_color
+    # set_color with rgb_color, rgb, target, and unit
     await mock_casambi.set_color(target=dummy_unit, rgb_color=(255, 0, 0))
+    await mock_casambi.set_color(unit=dummy_unit, rgb=(0, 255, 0))
 
-    # set_temperature
+    # set_temperature with target= and unit=
     await mock_casambi.set_temperature(target=dummy_unit, temperature=3000)
+    await mock_casambi.set_temperature(unit=dummy_unit, temperature=3000)
 
     # Operations unsupported on Classic OpCode map raise ValueError
     with pytest.raises(ValueError, match="not supported on Classic"):
         await mock_casambi.set_slider(target=dummy_unit, value=50)
+    with pytest.raises(ValueError, match="not supported on Classic"):
+        await mock_casambi.set_slider(unit=dummy_unit, value=50)
 
     with pytest.raises(ValueError, match=r"isn't supported|not supported on Classic"):
         await mock_casambi.set_color_xy(target=dummy_unit, xy_color=(0.4, 0.4))
+    with pytest.raises(ValueError, match=r"isn't supported|not supported on Classic"):
+        await mock_casambi.set_color_xy(unit=dummy_unit, xy=(0.4, 0.4))
 
-    # turn_on & turn_off
+    # turn_on & turn_off with target= and unit=
     await mock_casambi.turn_on(target=dummy_unit)
+    await mock_casambi.turn_on(unit=dummy_unit)
     await mock_casambi.turn_off(target=dummy_unit)
+    await mock_casambi.turn_off(unit=dummy_unit)
 
-    # switch_to_scene
+    # switch_to_scene with target= and scene=
     scene = mock_casambi.scenes[0]
     await mock_casambi.switch_to_scene(target=scene, level=200)
+    await mock_casambi.switch_to_scene(scene=scene, level=200)
 
     # set_control_value and set_white_color_balance raise ValueError on Classic
     ctrl = dummy_unit.unitType.controls[0]
@@ -192,8 +204,12 @@ async def test_casambi_set_unit_state(mock_casambi, dummy_unit):
     await mock_casambi.set_unit_state(target=dummy_unit, state=st)
     mock_casambi._casaClient.send.assert_called()
 
+    await mock_casambi.set_unit_state(unit=dummy_unit, state=st)
+
     with pytest.deprecated_call():
         await mock_casambi.setUnitState(target=dummy_unit, state=st)
+    with pytest.deprecated_call():
+        await mock_casambi.setUnitState(unit=dummy_unit, state=st)
 
 
 @pytest.mark.asyncio

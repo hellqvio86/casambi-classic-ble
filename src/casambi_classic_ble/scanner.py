@@ -8,6 +8,7 @@ from bleak import BleakScanner
 from ._adv import _internal_address
 from .constants import CasambiUUIDs
 from .device import CasambiDevice
+from .utils import mask_mac
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +68,20 @@ class CasambiScanner:
                     is_on = mfr_data[6] & 0x01
                     pct = round((dim_level_byte / 255.0) * 100)
                     state_info = f" | State: {'ON' if is_on else 'OFF'} ({pct}%)"
+                    is_debug = logger.isEnabledFor(logging.DEBUG)
                     logger.info(
-                        f"Discovered: {device.name} ({device.address}) | Internal: {rev_address}{state_info}"
+                        "Discovered: %s (%s) | Internal: %s%s",
+                        device.name,
+                        mask_mac(device.address, is_debug=is_debug),
+                        mask_mac(rev_address, is_debug=is_debug),
+                        state_info,
                     )
                 else:
-                    logger.info(f"Discovered: {device.name} ({device.address})")
+                    logger.info(
+                        "Discovered: %s (%s)",
+                        device.name,
+                        mask_mac(device.address, is_debug=logger.isEnabledFor(logging.DEBUG)),
+                    )
 
                 casambi_dev = CasambiDevice(address=device, name=device.name or "Casambi Device")
                 if mfr_data:

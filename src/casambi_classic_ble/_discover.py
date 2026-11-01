@@ -40,7 +40,7 @@ async def discover() -> list[BLEDevice]:
     for _, (d, advertisement) in devices_and_advertisements.items():
         if 963 in advertisement.manufacturer_data:
             if CASA_UUID in advertisement.service_uuids:
-                _LOGGER.debug(f"Discovered network at {d.address}")
+                _LOGGER.debug("Discovered network at %s", d.address)
                 discovered.append(d)
 
     return discovered

@@ -44,6 +44,7 @@ from .exceptions import (
     UnsupportedProtocolVersion,
 )
 from .scanner import CasambiScanner
+from .utils import mask_mac, mask_sensitive_data
 
 try:
     __version__: str = version("casambi-classic-ble")
@@ -88,5 +89,7 @@ __all__ = [
     "UnitType",
     "UnsupportedProtocolVersion",
     "discover",
+    "mask_mac",
+    "mask_sensitive_data",
     "utils",
 ]

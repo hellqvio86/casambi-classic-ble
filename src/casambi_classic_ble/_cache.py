@@ -8,6 +8,13 @@ from typing import Final
 
 from anyio import Path
 
+from .utils import (
+    POSIX_DIR_PERMISSIONS,
+    is_posix,
+    set_secure_dir_permissions,
+    set_secure_file_permissions,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 CACHE_PATH_DEFAULT: Final = Path(os.getcwd()) / "casambi-classic-ble-store"
@@ -67,17 +74,11 @@ class Cache:
         # This is not a redunant condition. We may have deleted the cache.
         if not await self._cachePath.exists():
             _LOGGER.info("Creating new cache.")
-            await self._cachePath.mkdir(mode=0o700)
+            await self._cachePath.mkdir(mode=POSIX_DIR_PERMISSIONS if is_posix() else 0o777)
             await self._cacheVersionFile.write_text(str(CACHE_VERSION))
-            try:
-                os.chmod(str(self._cacheVersionFile), 0o600)
-            except OSError as err:
-                _LOGGER.debug(f"Could not set permissions on {self._cacheVersionFile}: {err}")
+            set_secure_file_permissions(path=self._cacheVersionFile)
         else:
-            try:
-                os.chmod(str(self._cachePath), 0o700)
-            except OSError as err:
-                _LOGGER.debug(f"Could not set permissions on {self._cachePath}: {err}")
+            set_secure_dir_permissions(path=self._cachePath)
 
     async def __aenter__(self) -> Path:
         await _cacheLock.acquire()
@@ -91,11 +92,8 @@ class Cache:
             cacheDir = Path(self._cachePath / self._uuid)
             if not await cacheDir.exists():
                 _LOGGER.debug("Creating cache entry for id %s", self._uuid)
-                await cacheDir.mkdir(mode=0o700)
-            try:
-                os.chmod(str(cacheDir), 0o700)
-            except OSError as err:
-                _LOGGER.debug(f"Could not set permissions on {cacheDir}: {err}")
+                await cacheDir.mkdir(mode=POSIX_DIR_PERMISSIONS if is_posix() else 0o777)
+            set_secure_dir_permissions(path=cacheDir)
 
             _LOGGER.debug("Returning cache path %s for id %s.", cacheDir, self._uuid)
             return cacheDir

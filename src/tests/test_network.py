@@ -23,6 +23,7 @@ from casambi_classic_ble.errors import (
     NetworkNotFoundError,
     NetworkOnlineUpdateNeededError,
 )
+from casambi_classic_ble.utils import is_posix
 
 
 class _ForeignControlType(Enum):
@@ -402,7 +403,6 @@ async def test_legacy_network_id_migration(mock_cache):
 
 @pytest.mark.asyncio
 async def test_network_cache_permissions(mock_cache):
-    import os
     import stat
 
     sess = _NetworkSession(
@@ -422,14 +422,20 @@ async def test_network_cache_permissions(mock_cache):
     await net._saveTypeCache()
 
     async with mock_cache as p:
-        # Check directory permissions (0700)
-        dir_stat = os.stat(str(p))
-        assert stat.S_IMODE(dir_stat.st_mode) == 0o700
+        if is_posix():
+            # Check directory permissions (0700)
+            dir_stat = await p.stat()
+            assert stat.S_IMODE(dir_stat.st_mode) == 0o700
 
-        # Check session JSON permissions (0600)
-        sess_stat = os.stat(str(p / SESSION_CACHE_FILE))
-        assert stat.S_IMODE(sess_stat.st_mode) == 0o600
+            # Check session JSON permissions (0600)
+            sess_stat = await (p / SESSION_CACHE_FILE).stat()
+            assert stat.S_IMODE(sess_stat.st_mode) == 0o600
 
-        # Check types JSON permissions (0600)
-        types_stat = os.stat(str(p / TYPES_CACHE_FILE))
-        assert stat.S_IMODE(types_stat.st_mode) == 0o600
+            # Check types JSON permissions (0600)
+            types_stat = await (p / TYPES_CACHE_FILE).stat()
+            assert stat.S_IMODE(types_stat.st_mode) == 0o600
+        else:
+            # On non-POSIX (Windows), verify files and directory exist without error
+            assert await p.exists()
+            assert await (p / SESSION_CACHE_FILE).exists()
+            assert await (p / TYPES_CACHE_FILE).exists()

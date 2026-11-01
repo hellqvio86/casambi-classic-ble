@@ -1,7 +1,6 @@
 import binascii
 import json
 import logging
-import os
 import pickle
 import warnings
 from dataclasses import asdict, dataclass
@@ -14,6 +13,7 @@ from ._constants import (
     KEY_CACHE_FILE,
     LEGACY_KEY_CACHE_FILE,
 )
+from .utils import set_secure_file_permissions
 
 
 @dataclass()
@@ -80,10 +80,7 @@ class KeyStore:
                     json_content = json.dumps(key_data, indent=2)
                     json_file = cachePath / KEY_CACHE_FILE
                     await json_file.write_text(json_content)
-                    try:
-                        os.chmod(str(json_file), 0o600)
-                    except OSError as err:
-                        self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+                    set_secure_file_permissions(path=json_file)
 
                     try:
                         await pickle_file.unlink()
@@ -111,11 +108,8 @@ class KeyStore:
             json_file = cachePath / KEY_CACHE_FILE
             await json_file.write_text(json_content)
 
-            # Ensure secure file permissions (0600: read/write owner only)
-            try:
-                os.chmod(str(json_file), 0o600)
-            except OSError as err:
-                self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+            # Ensure secure file permissions (0600 on POSIX, safe on Windows)
+            set_secure_file_permissions(path=json_file)
 
             self._logger.debug(f"Saved {len(self._keys)} keys.")
 

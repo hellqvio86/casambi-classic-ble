@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import pickle
 import warnings
 from dataclasses import dataclass, replace
@@ -29,6 +28,7 @@ from .errors import (
     NetworkOnlineUpdateNeededError,
     NetworkUpdateError,
 )
+from .utils import set_secure_file_permissions
 
 
 @dataclass()
@@ -143,10 +143,7 @@ class Network:
             return
         json_file = cachePath / SESSION_CACHE_FILE
         await json_file.write_text(json.dumps(self._session.to_dict(), indent=2))
-        try:
-            os.chmod(str(json_file), 0o600)
-        except OSError as err:
-            self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+        set_secure_file_permissions(path=json_file)
 
     async def _saveSesion(self) -> None:
         self._logger.debug("Saving session...")
@@ -280,10 +277,7 @@ class Network:
 
         json_file = cachePath / TYPES_CACHE_FILE
         await json_file.write_text(json.dumps(data, indent=2))
-        try:
-            os.chmod(str(json_file), 0o600)
-        except OSError as err:
-            self._logger.debug(f"Could not set permissions on {json_file}: {err}")
+        set_secure_file_permissions(path=json_file)
 
     async def _saveTypeCache(self) -> None:
         self._logger.debug("Saving type cache...")
@@ -303,8 +297,8 @@ class Network:
                 self._id = await legacyNetworkCacheFile.read_text()
                 # Migrate to new file with secure permissions
                 await networkCacheFile.write_text(self._id)
+                set_secure_file_permissions(path=networkCacheFile)
                 try:
-                    os.chmod(str(networkCacheFile), 0o600)
                     await legacyNetworkCacheFile.unlink()
                 except Exception as err:
                     self._logger.debug(f"Could not migrate legacy network ID cache: {err}")
@@ -343,10 +337,7 @@ class Network:
             async with self._cache as cachePath:
                 networkCacheFile = cachePath / NETWORK_ID_CACHE_FILE
                 await networkCacheFile.write_text(new_id)
-                try:
-                    os.chmod(str(networkCacheFile), 0o600)
-                except OSError as err:
-                    self._logger.debug(f"Could not set permissions on {networkCacheFile}: {err}")
+                set_secure_file_permissions(path=networkCacheFile)
             self._id = new_id
         self._logger.info(f"Got network id {self._id}.")
 
@@ -443,12 +434,7 @@ class Network:
                     async with self._cache as cachePath:
                         cachedNetworkPah = cachePath / f"{self._id}.json"
                         await cachedNetworkPah.write_bytes(res.content)
-                        try:
-                            os.chmod(str(cachedNetworkPah), 0o600)
-                        except OSError as err:
-                            self._logger.debug(
-                                f"Could not set permissions on {cachedNetworkPah}: {err}"
-                            )
+                        set_secure_file_permissions(path=cachedNetworkPah)
                     network = updateResult
                     self._logger.info(
                         f"Fetched updated network with revision {self._networkRevision}"

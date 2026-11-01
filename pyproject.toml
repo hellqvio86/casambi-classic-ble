@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "casambi-classic-ble"
-version = "0.8.4"
+version = "0.8.5"
 description = "Bluetooth Low Energy library for Casambi classic firmware lighting control (fork of casambi-bt by Lukas Kempf)"
 authors = [
     {name = "Lukas Kempf (Original casambi-bt author)"},
@@ -26,13 +26,13 @@ classifiers = [
 ]
 
 dependencies = [
-    "bleak>=0.21.0",
-    "aiohttp>=3.14.4",
-    "websockets>=13.0",
-    "cryptography>=40.0.0",
-    "httpx>=0.25",
-    "bleak_retry_connector>=4.6.0",
-    "anyio>=4.10.0",
+    "bleak>=0.21.0,<4.0.0",
+    "aiohttp>=3.14.4,<4.0.0",
+    "websockets>=13.0,<19.0",
+    "cryptography>=40.0.0,<52.0.0",
+    "httpx>=0.25.0,<1.0.0",
+    "bleak_retry_connector>=4.6.0,<6.0.0",
+    "anyio>=4.10.0,<5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -95,7 +95,10 @@ filterwarnings = [
     # anyio thread runner GC unraisable warning on older matrix versions
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
-addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
+markers = [
+    "hardware: Opt-in physical BLE hardware test requiring explicit human approval (deselected by default)",
+]
+addopts = "-v --tb=short -m 'not hardware' --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
 
 [tool.mypy]
 python_version = "3.12"

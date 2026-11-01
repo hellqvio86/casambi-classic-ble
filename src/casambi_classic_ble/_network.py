@@ -39,7 +39,11 @@ from .exceptions import (
     NetworkOnlineUpdateNeededError,
     NetworkUpdateError,
 )
-from .utils import set_secure_file_permissions
+from .utils import (
+    async_atomic_write_file,
+    set_secure_file_permissions,
+    validate_safe_path,
+)
 
 
 @dataclass()
@@ -128,6 +132,7 @@ class Network:
             pickle_file = cachePath / LEGACY_SESSION_CACHE_FILE
 
             if await json_file.exists():
+                validate_safe_path(json_file, base_path=cachePath)
                 try:
                     raw_json = await json_file.read_text()
                     data = json.loads(raw_json)
@@ -138,7 +143,7 @@ class Network:
                     self._session = _NetworkSession.from_dict(data)
                     self._logger.info("Session loaded from JSON.")
                     return
-                except Exception as err:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as err:
                     self._logger.warning(f"Failed to load session from JSON: {err}")
 
             if await pickle_file.exists():
@@ -153,8 +158,11 @@ class Network:
         if self._session is None:
             return
         json_file = cachePath / SESSION_CACHE_FILE
-        await json_file.write_text(json.dumps(self._session.to_dict(), indent=2))
-        set_secure_file_permissions(path=json_file)
+        validate_safe_path(json_file, base_path=cachePath)
+        await async_atomic_write_file(
+            path=json_file,
+            content=json.dumps(self._session.to_dict(), indent=2),
+        )
 
     async def _save_session(self) -> None:
         self._logger.debug("Saving session...")
@@ -171,6 +179,7 @@ class Network:
             pickle_file = cachePath / LEGACY_TYPES_CACHE_FILE
 
             if await json_file.exists():
+                validate_safe_path(json_file, base_path=cachePath)
                 try:
                     raw_json = await json_file.read_text()
                     data = json.loads(raw_json)
@@ -178,6 +187,8 @@ class Network:
                         raise ValueError(
                             f"Expected dict in {TYPES_CACHE_FILE}, got {type(data).__name__}"
                         )
+                    if len(data) > 1000:
+                        raise ValueError(f"Too many unit types in cache ({len(data)} > 1000)")
                     clean_types: dict[int, tuple[UnitType | None, datetime]] = {}
                     for key_str, entry in data.items():
                         if not isinstance(entry, dict):
@@ -217,7 +228,7 @@ class Network:
                     self._unitTypes = clean_types
                     self._logger.info("Unit type cache loaded from JSON.")
                     return
-                except Exception as err:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError) as err:
                     self._logger.warning(
                         f"Failed to load unit type cache from JSON, resetting: {err}",
                         exc_info=True,
@@ -266,8 +277,11 @@ class Network:
             }
 
         json_file = cachePath / TYPES_CACHE_FILE
-        await json_file.write_text(json.dumps(data, indent=2))
-        set_secure_file_permissions(path=json_file)
+        validate_safe_path(json_file, base_path=cachePath)
+        await async_atomic_write_file(
+            path=json_file,
+            content=json.dumps(data, indent=2),
+        )
 
     async def _saveTypeCache(self) -> None:
         self._logger.debug("Saving type cache...")
@@ -282,12 +296,13 @@ class Network:
             legacyNetworkCacheFile = cachePath / LEGACY_NETWORK_ID_CACHE_FILE
 
             if await networkCacheFile.exists():
+                validate_safe_path(networkCacheFile, base_path=cachePath)
                 self._id = await networkCacheFile.read_text()
             elif await legacyNetworkCacheFile.exists():
+                validate_safe_path(legacyNetworkCacheFile, base_path=cachePath)
                 self._id = await legacyNetworkCacheFile.read_text()
-                # Migrate to new file with secure permissions
-                await networkCacheFile.write_text(self._id)
-                set_secure_file_permissions(path=networkCacheFile)
+                # Migrate to new file with secure permissions and atomic write
+                await async_atomic_write_file(path=networkCacheFile, content=self._id)
                 try:
                     await legacyNetworkCacheFile.unlink()
                 except Exception as err:
@@ -322,12 +337,15 @@ class Network:
             )
 
         new_id = cast(str, res.json()["id"])
+        if not isinstance(new_id, str) or not new_id.strip() or "/" in new_id or ".." in new_id:
+            raise NetworkNotFoundError(f"Received invalid network ID format: {new_id}")
+
         if self._id != new_id:
             self._logger.info(f"Network id changed from {self._id} to {new_id}.")
             async with self._cache as cachePath:
                 networkCacheFile = cachePath / NETWORK_ID_CACHE_FILE
-                await networkCacheFile.write_text(new_id)
-                set_secure_file_permissions(path=networkCacheFile)
+                validate_safe_path(networkCacheFile, base_path=cachePath)
+                await async_atomic_write_file(path=networkCacheFile, content=new_id)
             self._id = new_id
         self._logger.info(f"Got network id {self._id}.")
 

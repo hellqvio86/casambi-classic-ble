@@ -115,3 +115,75 @@ def test_cache_multiple_event_loops(tmp_path: pathlib.Path):
 
     assert (tmp_path / "loop1" / "loop1.txt").exists()
     assert (tmp_path / "loop2" / "loop2.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_cache_uuid_validation_and_path_traversal(tmp_path: pathlib.Path):
+    from casambi_classic_ble.exceptions import CasambiSecurityError
+
+    cache = Cache(cache_path=tmp_path)
+
+    # Empty UUID
+    with pytest.raises(ValueError, match="non-empty string"):
+        await cache.set_uuid(uuid="")
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        await cache.set_uuid(uuid="   ")
+
+    # Path traversal attempts
+    with pytest.raises(CasambiSecurityError, match="path traversal characters are forbidden"):
+        await cache.set_uuid(uuid="../escape")
+
+    with pytest.raises(CasambiSecurityError, match="path traversal characters are forbidden"):
+        await cache.set_uuid(uuid="sub/dir")
+
+    with pytest.raises(CasambiSecurityError, match="path traversal characters are forbidden"):
+        await cache.set_uuid(uuid="sub\\dir")
+
+    with pytest.raises(CasambiSecurityError, match="path traversal characters are forbidden"):
+        await cache.set_uuid(uuid="uuid\x00null")
+
+
+@pytest.mark.asyncio
+async def test_cache_symlink_rejection(tmp_path: pathlib.Path):
+    from casambi_classic_ble.exceptions import CasambiSecurityError
+
+    cache = Cache(cache_path=tmp_path)
+    await cache.set_uuid(uuid="init_net")
+    async with cache:
+        pass  # Ensures cache version 4 file exists
+
+    await cache.set_uuid(uuid="symlink_net")
+
+    # Create target as symlink
+    real_target = tmp_path / "real_store"
+    real_target.mkdir()
+    sym_dir = tmp_path / "symlink_net"
+    sym_dir.symlink_to(real_target)
+
+    with pytest.raises(CasambiSecurityError, match="Symlinks are forbidden"):
+        async with cache:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_cache_lock_released_on_cancellation(tmp_path: pathlib.Path):
+    import asyncio
+
+    cache = Cache(cache_path=tmp_path)
+    await cache.set_uuid(uuid="cancel_net")
+
+    async def cancelled_worker() -> None:
+        async with cache:
+            await asyncio.sleep(10)
+
+    task = asyncio.create_task(cancelled_worker())
+    await asyncio.sleep(0.01)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Lock must be free for next caller
+    async with cache as cache_dir:
+        assert await cache_dir.exists()

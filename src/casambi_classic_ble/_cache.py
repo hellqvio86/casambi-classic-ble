@@ -9,11 +9,12 @@ from typing import Any, Final
 
 from anyio import Path
 
+from .exceptions import CasambiSecurityError
 from .utils import (
-    POSIX_DIR_PERMISSIONS,
-    is_posix,
+    async_atomic_write_file,
+    ensure_secure_directory,
     set_secure_dir_permissions,
-    set_secure_file_permissions,
+    validate_safe_path,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +23,18 @@ CACHE_VERSION: Final = 4
 
 # Registry of locks keyed by (event_loop, resolved_cache_path)
 _cache_locks: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Lock] = {}
+
+
+def _validate_cache_uuid(uuid: str) -> str:
+    """Validate cache UUID preventing path traversal and invalid characters."""
+    if not isinstance(uuid, str) or not uuid.strip():
+        raise ValueError("Cache UUID must be a non-empty string.")
+    cleaned = uuid.strip()
+    if "\x00" in cleaned or "/" in cleaned or "\\" in cleaned or ".." in cleaned:
+        raise CasambiSecurityError(
+            f"Invalid cache UUID '{cleaned}': path traversal characters are forbidden."
+        )
+    return cleaned
 
 
 def get_default_cache_path() -> Path:
@@ -105,8 +118,9 @@ class Cache:
         return _get_cache_lock(self._cachePath)
 
     async def set_uuid(self, *, uuid: str) -> None:
+        validated_uuid = _validate_cache_uuid(uuid)
         async with self._lock:
-            self._uuid = uuid
+            self._uuid = validated_uuid
 
     async def setUuid(self, *args: Any, uuid: str | None = None) -> None:
         target_uuid = args[0] if args else uuid
@@ -125,9 +139,12 @@ class Cache:
         if not self._lock.locked():
             raise RuntimeError("Cache lock must be held before validating cache.")
 
+        validate_safe_path(self._cachePath)
+
         if await self._cachePath.exists():
             cacheVer = None
             if await self._cacheVersionFile.exists():
+                validate_safe_path(self._cacheVersionFile, base_path=self._cachePath)
                 try:
                     cacheVer = int(await self._cacheVersionFile.read_text())
                     _LOGGER.debug("Read cache version %i.", cacheVer)
@@ -148,11 +165,10 @@ class Cache:
         # This is not a redundant condition. We may have deleted the cache.
         if not await self._cachePath.exists():
             _LOGGER.info("Creating new cache.")
-            await self._cachePath.mkdir(mode=POSIX_DIR_PERMISSIONS if is_posix() else 0o777)
-            await self._cacheVersionFile.write_text(str(CACHE_VERSION))
-            set_secure_file_permissions(path=self._cacheVersionFile)
+            ensure_secure_directory(self._cachePath)
+            await async_atomic_write_file(path=self._cacheVersionFile, content=str(CACHE_VERSION))
         else:
-            set_secure_dir_permissions(path=self._cachePath)
+            ensure_secure_directory(self._cachePath)
 
     async def __aenter__(self) -> Path:
         await self._lock.acquire()
@@ -164,14 +180,16 @@ class Cache:
             await self._ensureCacheValid()
 
             cacheDir = Path(self._cachePath / self._uuid)
+            validate_safe_path(cacheDir, base_path=self._cachePath)
             if not await cacheDir.exists():
                 _LOGGER.debug("Creating cache entry for id %s", self._uuid)
-                await cacheDir.mkdir(mode=POSIX_DIR_PERMISSIONS if is_posix() else 0o777)
-            set_secure_dir_permissions(path=cacheDir)
+                ensure_secure_directory(cacheDir)
+            else:
+                set_secure_dir_permissions(path=cacheDir)
 
             _LOGGER.debug("Returning cache path %s for id %s.", cacheDir, self._uuid)
             return cacheDir
-        except Exception:
+        except BaseException:
             self._lock.release()
             raise
 
@@ -188,11 +206,13 @@ class Cache:
             if self._uuid is None:
                 raise ValueError("UUID not set.")
             await self._ensureCacheValid()
-            if not await (self._cachePath / self._uuid).exists():
+            target_entry = self._cachePath / self._uuid
+            validate_safe_path(target_entry, base_path=self._cachePath)
+            if not await target_entry.exists():
                 return
             _LOGGER.info("Deleting cache entry %s", self._uuid)
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _blocking_delete, self._cachePath / self._uuid)
+            await loop.run_in_executor(None, _blocking_delete, target_entry)
 
     async def invalidateCache(self) -> None:
         warnings.warn(

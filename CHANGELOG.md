@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.0] - 2026-11-01
+
+### Added
+- **Crash-Safe Atomic File Persistence (P1.1):**
+  - Added `atomic_write_file` and `async_atomic_write_file` in `casambi_classic_ble.utils` using temporary staging files in the same directory (`mkstemp`), `os.fsync`, explicit `0o600` permissions, and atomic `os.replace`.
+  - Guarantees that interrupted or cancelled writes never leave corrupt or partially written files on disk.
+- **Strict Cache Format Validation & Recovery Invariants (P1.1):**
+  - Added `CasambiCacheError` and `CasambiSecurityError` to exception hierarchy and public exports.
+  - Implemented strict JSON schema validation in `KeyStore.load()`: validates top-level list type, maximum 256 records, integer bounds (`-1 <= id <= 65535`, `-1 <= type <= 65535`), role bounds (`0 <= role <= 3`), name length (`<= 128`), and exact 32-hex-character keys (16 bytes).
+  - Enforced duplicate ID rejection: regular keys (`id != -1`) must have unique IDs, and legacy keys (`id == -1`) cannot duplicate roles.
+  - Implemented all-or-nothing in-memory load atomicity: validated records are accumulated into temporary structures and only replace `self._keys` if ALL records pass validation; any failure raises `CasambiCacheError` and preserves in-memory credentials intact.
+  - Narrowed exception handling around JSON parsing to `(json.JSONDecodeError, ValueError, KeyError, TypeError, binascii.Error)`, preserving failure context while never leaking secrets or raw hex keys in error messages.
+- **Path Traversal & Symlink Protection (P1.1):**
+  - Added `ensure_secure_directory` enforcing `0o700` restrictive directory permissions and rejecting symlink directories.
+  - Added `validate_safe_path` forbidding path traversal characters (`..`, `/`, `\\`, null bytes) and strictly rejecting symlinks for cache files and cache directories.
+- **Safe Unit Type and Network ID Cache Persistence (P1.1):**
+  - Migrated `casambi_session.json`, `casambi_types.json`, and `.cachever` to atomic writes with path traversal and symlink validation.
+
 ## [0.7.0] - 2026-11-01
 
 ### Added

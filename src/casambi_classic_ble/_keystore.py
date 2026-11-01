@@ -3,7 +3,7 @@ import json
 import logging
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Final
 
 from ._cache import Cache
 from ._constants import (
@@ -12,7 +12,15 @@ from ._constants import (
     KEY_CACHE_FILE,
     LEGACY_KEY_CACHE_FILE,
 )
-from .utils import set_secure_file_permissions
+from .exceptions import CasambiCacheError
+from .utils import (
+    POSIX_FILE_PERMISSIONS,
+    async_atomic_write_file,
+    validate_safe_path,
+)
+
+MAX_KEY_CACHE_RECORDS: Final[int] = 256
+MAX_KEY_NAME_LENGTH: Final[int] = 128
 
 
 @dataclass()
@@ -38,36 +46,100 @@ class KeyStore:
             pickle_file = cachePath / LEGACY_KEY_CACHE_FILE
 
             if await json_file.exists():
+                validate_safe_path(json_file, base_path=cachePath)
                 raw_json = await json_file.read_text()
                 try:
                     data = json.loads(raw_json)
-                    if not isinstance(data, list):
-                        raise ValueError(
-                            f"Expected list in {KEY_CACHE_FILE}, got {type(data).__name__}"
-                        )
-                    loaded_keys: list[Key] = []
-                    for item in data:
+                except json.JSONDecodeError as err:
+                    raise CasambiCacheError(
+                        f"Failed to parse key cache JSON '{KEY_CACHE_FILE}': {err}"
+                    ) from err
+
+                if not isinstance(data, list):
+                    raise CasambiCacheError(
+                        f"Expected list in {KEY_CACHE_FILE}, got {type(data).__name__}"
+                    )
+
+                if len(data) > MAX_KEY_CACHE_RECORDS:
+                    raise CasambiCacheError(
+                        f"Key cache exceeds maximum allowed records ({len(data)} > {MAX_KEY_CACHE_RECORDS})"
+                    )
+
+                loaded_keys: list[Key] = []
+                seen_ids: set[int] = set()
+                seen_legacy_roles: set[int] = set()
+                try:
+                    for idx, item in enumerate(data):
                         if not isinstance(item, dict):
                             raise ValueError(
-                                f"Expected dict in key entry, got {type(item).__name__}"
+                                f"Record at index {idx} must be a dict, got {type(item).__name__}"
                             )
-                        raw_key = bytes.fromhex(item["key"])
+
+                        for required_field in ("id", "type", "role", "name", "key"):
+                            if required_field not in item:
+                                raise KeyError(
+                                    f"Missing required field '{required_field}' at record {idx}"
+                                )
+
+                        key_id = int(item["id"])
+                        if not (-1 <= key_id <= 65535):
+                            raise ValueError(f"Key id at index {idx} out of range: {key_id}")
+
+                        key_type = int(item["type"])
+                        if not (-1 <= key_type <= 65535):
+                            raise ValueError(f"Key type at index {idx} out of range: {key_type}")
+
+                        role = int(item["role"])
+                        if role < 0 or role > 3:
+                            raise ValueError(f"Invalid key role at index {idx}: {role}")
+
+                        if key_id == -1:
+                            if role in seen_legacy_roles:
+                                raise ValueError(
+                                    f"Duplicate legacy key for role {role} at record {idx}"
+                                )
+                            seen_legacy_roles.add(role)
+                        else:
+                            if key_id in seen_ids:
+                                raise ValueError(f"Duplicate key id {key_id} at record {idx}")
+                            seen_ids.add(key_id)
+
+                        name = str(item["name"])
+                        if len(name) > MAX_KEY_NAME_LENGTH:
+                            raise ValueError(
+                                f"Key name at index {idx} exceeds maximum length {MAX_KEY_NAME_LENGTH}"
+                            )
+
+                        key_str = item["key"]
+                        if not isinstance(key_str, str) or len(key_str) != 32:
+                            raise ValueError(
+                                f"Key hex string at index {idx} must be exactly 32 characters"
+                            )
+
+                        raw_key = bytes.fromhex(key_str)
                         if len(raw_key) != 16:
-                            raise ValueError(f"Key length must be 16 bytes, got {len(raw_key)}")
+                            raise ValueError(
+                                f"Decoded key length at index {idx} must be 16 bytes, got {len(raw_key)}"
+                            )
+
                         loaded_keys.append(
                             Key(
-                                id=int(item["id"]),
-                                type=int(item["type"]),
-                                role=int(item["role"]),
-                                name=str(item["name"]),
+                                id=key_id,
+                                type=key_type,
+                                role=role,
+                                name=name,
                                 key=raw_key,
                             )
                         )
-                    self._keys = loaded_keys
-                    self._logger.debug(f"Loaded {len(self._keys)} keys from JSON.")
-                    return
-                except Exception as err:
-                    self._logger.warning(f"Failed to load keys from JSON cache: {err}")
+                except (ValueError, KeyError, TypeError, binascii.Error) as err:
+                    raise CasambiCacheError(
+                        f"Validation failed for key cache '{KEY_CACHE_FILE}': {err}"
+                    ) from err
+
+                # Replace in-memory state only after ALL records pass validation
+                self._keys = loaded_keys
+                self._logger.debug(f"Loaded {len(self._keys)} keys from JSON.")
+                return
 
             if await pickle_file.exists():
                 msg = (
@@ -93,10 +165,13 @@ class KeyStore:
 
             json_content = json.dumps(key_data, indent=2)
             json_file = cachePath / KEY_CACHE_FILE
-            await json_file.write_text(json_content)
 
-            # Ensure secure file permissions (0600 on POSIX, safe on Windows)
-            set_secure_file_permissions(path=json_file)
+            # Atomic write guarantees crash-safe persistence and secure permissions
+            await async_atomic_write_file(
+                path=json_file,
+                content=json_content,
+                mode=POSIX_FILE_PERMISSIONS,
+            )
 
             self._logger.debug(f"Saved {len(self._keys)} keys.")
 

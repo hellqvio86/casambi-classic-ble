@@ -671,3 +671,170 @@ async def test_device_disconnect_cleans_up_client_even_when_not_connected():
 
     await device.disconnect()
     mock_bleak.disconnect.assert_awaited_once()
+
+
+async def test_connect_cancellation_cleans_up_gatt_and_state(mock_network):
+    """P1.3: Cancellation during connect() must disconnect client, cleanup task, and reset state."""
+    mock_gatt = AsyncMock()
+    mock_gatt.disconnect = AsyncMock()
+
+    client = CasambiClientClassic(
+        address_or_device="AA:BB:CC:DD:EE:FF",
+        dataCallback=MagicMock(),
+        disconnected_callback=MagicMock(),
+        network=mock_network,
+    )
+
+    async def cancel_establish(*args, **kwargs):
+        # Assign mock_gatt before raising cancellation to simulate mid-flight cancellation
+        client._gattClient = mock_gatt
+        raise asyncio.CancelledError()
+
+    with (
+        patch("casambi_classic_ble._client.get_device", AsyncMock(return_value=MagicMock())),
+        patch("casambi_classic_ble._client.close_stale_connections", AsyncMock()),
+        patch("casambi_classic_ble._client.establish_connection", side_effect=cancel_establish),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await client.connect()
+
+    assert client._connectionState == ConnectionState.NONE
+    assert client._gattClient is None
+    assert client._callbackTask is None
+    mock_gatt.disconnect.assert_awaited_once()
+
+
+async def test_disconnect_cancellation_preserves_state_reset(mock_classic_client):
+    """P1.3: Cancellation during disconnect() must still reset state and clear queue."""
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+    mock_classic_client._callbackQueue = asyncio.Queue()
+    mock_classic_client._callbackQueue.put_nowait((MagicMock(), bytearray(b"\x01")))
+
+    async def cancel_disconnect():
+        raise asyncio.CancelledError()
+
+    mock_classic_client._gattClient.disconnect = AsyncMock(side_effect=cancel_disconnect)
+
+    with pytest.raises(asyncio.CancelledError):
+        await mock_classic_client.disconnect()
+
+    assert mock_classic_client._connectionState == ConnectionState.NONE
+    assert mock_classic_client._callbackQueue is None
+    assert mock_classic_client._callbackTask is None
+
+
+def test_queue_callback_burst_drops_oldest_frame(mock_classic_client, caplog):
+    """P1.3: Queue saturation drops the oldest frame and keeps newer frames without blocking."""
+    mock_classic_client._callbackQueue = asyncio.Queue(maxsize=3)
+
+    # Fill queue to capacity
+    mock_classic_client._queue_callback(MagicMock(), bytearray(b"\x01"))
+    mock_classic_client._queue_callback(MagicMock(), bytearray(b"\x02"))
+    mock_classic_client._queue_callback(MagicMock(), bytearray(b"\x03"))
+    assert mock_classic_client._callbackQueue.qsize() == 3
+
+    # Add 4th item during burst
+    with caplog.at_level(logging.WARNING):
+        mock_classic_client._queue_callback(MagicMock(), bytearray(b"\x04"))
+
+    assert "Callback queue full" in caplog.text
+    assert mock_classic_client._callbackQueue.qsize() == 3
+
+    # Oldest item (b"\x01") was dropped; queue now holds b"\x02", b"\x03", b"\x04"
+    _, item1 = mock_classic_client._callbackQueue.get_nowait()
+    assert item1 == bytearray(b"\x02")
+    _, item2 = mock_classic_client._callbackQueue.get_nowait()
+    assert item2 == bytearray(b"\x03")
+    _, item3 = mock_classic_client._callbackQueue.get_nowait()
+    assert item3 == bytearray(b"\x04")
+
+
+def test_callback_worker_exception_observation(mock_classic_client, caplog):
+    """P1.3: Worker exceptions are observed via task done callback without unhandled warnings."""
+    mock_task = MagicMock(spec=asyncio.Task)
+    mock_task.cancelled.return_value = False
+    mock_task.exception.return_value = RuntimeError("Synthetic worker crash")
+
+    with caplog.at_level(logging.ERROR):
+        mock_classic_client._on_callback_task_done(mock_task)
+
+    assert "Callback worker task failed unexpectedly: Synthetic worker crash" in caplog.text
+
+    # Cancelled tasks do not log errors
+    mock_task.cancelled.return_value = True
+    caplog.clear()
+    mock_classic_client._on_callback_task_done(mock_task)
+    assert "Callback worker task failed" not in caplog.text
+
+
+def test_disconnect_callback_exception_isolation(mock_classic_client, caplog):
+    """P1.3: Exceptions in downstream disconnected callback must not crash disconnect handler."""
+
+    def bad_callback():
+        raise ValueError("Downstream listener exploded")
+
+    mock_classic_client._disconnectedCallback = bad_callback
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+
+    with caplog.at_level(logging.WARNING):
+        mock_classic_client._on_disconnect(client=MagicMock())
+
+    assert mock_classic_client._connectionState == ConnectionState.NONE
+    assert "Error in disconnect callback: Downstream listener exploded" in caplog.text
+
+
+async def test_exchange_key_struct_error_raises_protocol_error(mock_classic_client):
+    """P1.3: Malformed firstResp during exchange_key raises ProtocolError with chained context."""
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    # Return 3 bytes (expected 13 bytes)
+    mock_classic_client._gattClient.read_gatt_char.return_value = b"\x01\x02\x03"
+
+    with pytest.raises(ProtocolError) as exc_info:
+        await mock_classic_client.exchange_key()
+
+    assert "Malformed device info response in key exchange" in str(exc_info.value)
+    assert exc_info.value.__cause__ is not None
+
+
+async def test_exchange_key_without_gatt_client(mock_classic_client):
+    """P1.3: Calling exchange_key with None gattClient raises ConnectionStateError."""
+    mock_classic_client._connectionState = ConnectionState.CONNECTED
+    mock_classic_client._gattClient = None
+
+    with pytest.raises(ConnectionStateError):
+        await mock_classic_client.exchange_key()
+
+
+async def test_send_internal_without_gatt_client(mock_classic_client):
+    """P1.3: Calling _send_internal with None gattClient raises ConnectionStateError."""
+    mock_classic_client._connectionState = ConnectionState.AUTHENTICATED
+    mock_classic_client._gattClient = None
+
+    with pytest.raises(ConnectionStateError):
+        await mock_classic_client._send_internal(b"\x01\x02")
+
+
+async def test_device_connect_cancellation_cleans_up():
+    """P1.3: Cancellation during CasambiDevice.connect cleanly disconnects BleakClient."""
+    from casambi_classic_ble import CasambiDevice
+
+    mock_bleak = AsyncMock()
+    mock_bleak.is_connected = False
+    mock_bleak.disconnect = AsyncMock()
+
+    device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
+
+    async def cancel_establish(*args, **kwargs):
+        device.client = mock_bleak
+        raise asyncio.CancelledError()
+
+    with (
+        patch("casambi_classic_ble.device.get_device", AsyncMock(return_value=MagicMock())),
+        patch("casambi_classic_ble.device.establish_connection", side_effect=cancel_establish),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await device.connect()
+
+    assert not device.is_connected
+    assert device.client is None
+    mock_bleak.disconnect.assert_awaited_once()

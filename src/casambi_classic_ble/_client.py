@@ -44,6 +44,8 @@ from .exceptions import (
     UnsupportedProtocolVersion,
 )
 
+MAX_CALLBACK_QUEUE_SIZE: int = 256
+
 
 class CasambiClient(ABC):
     def __init__(
@@ -135,12 +137,29 @@ class CasambiClient(ABC):
         self._check_state(desired)
 
     async def _cleanup_callback_task(self) -> None:
-        """Cancel and wait for callback worker task."""
+        """Cancel, await, and drain callback worker task and queue."""
         if self._callbackTask is not None:
             self._callbackTask.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._callbackTask
             self._callbackTask = None
+
+        if self._callbackQueue is not None:
+            while not self._callbackQueue.empty():
+                try:
+                    self._callbackQueue.get_nowait()
+                    self._callbackQueue.task_done()
+                except (asyncio.QueueEmpty, ValueError):
+                    break
+            self._callbackQueue = None
+
+    def _on_callback_task_done(self, task: asyncio.Task[None]) -> None:
+        """Observe worker completion to surface exceptions and prevent unhandled task warnings."""
+        if task.cancelled():
+            return
+        err = task.exception()
+        if err is not None:
+            self._logger.error("Callback worker task failed unexpectedly: %s", err, exc_info=err)
 
     async def connect(self) -> None:
         self._check_state(ConnectionState.NONE)
@@ -175,30 +194,33 @@ class CasambiClient(ABC):
                 use_services_cache=False,
             )
             # Reset callback queue and spawn task only after connection succeeds
-            self._callbackQueue = asyncio.Queue()
+            self._callbackQueue = asyncio.Queue(maxsize=MAX_CALLBACK_QUEUE_SIZE)
             self._callbackTask = asyncio.create_task(self._process_callbacks())
-        except BleakNotFoundError as err:
-            await self._cleanup_callback_task()
-            # Guess that this is the error reason since there are no better error types
-            self._logger.error("Failed to find unit.", exc_info=True)
-            raise BluetoothDeviceNotFoundError("Device not found") from err
-        except (BleakOutOfConnectionSlotsError, BleakAbortedError) as err:
-            await self._cleanup_callback_task()
-            self._logger.warning("Transient connection error", exc_info=True)
-            raise BluetoothError(str(err) or "Transient connection error") from err
-        except BleakError as err:
-            await self._cleanup_callback_task()
-            self._logger.error("Failed to connect.", exc_info=True)
-            raise BluetoothError(str(err) or "Failed to connect") from err
+            self._callbackTask.add_done_callback(self._on_callback_task_done)
+            self._connectionState = ConnectionState.CONNECTED
         except BaseException as err:
             await self._cleanup_callback_task()
-            if isinstance(err, Exception):
+            if self._gattClient is not None:
+                with contextlib.suppress(Exception):
+                    await self._gattClient.disconnect()
+                self._gattClient = None  # type: ignore[assignment]
+            self._connectionState = ConnectionState.NONE
+            if isinstance(err, BleakNotFoundError):
+                # Guess that this is the error reason since there are no better error types
+                self._logger.error("Failed to find unit.", exc_info=True)
+                raise BluetoothDeviceNotFoundError("Device not found") from err
+            elif isinstance(err, (BleakOutOfConnectionSlotsError, BleakAbortedError)):
+                self._logger.warning("Transient connection error", exc_info=True)
+                raise BluetoothError(str(err) or "Transient connection error") from err
+            elif isinstance(err, BleakError):
+                self._logger.error("Failed to connect.", exc_info=True)
+                raise BluetoothError(str(err) or "Failed to connect") from err
+            elif isinstance(err, Exception):
                 self._logger.error("Unknown connection failure.", exc_info=True)
                 raise BluetoothError(str(err) or "Unknown connection failure") from err
             raise
 
         self._logger.info(f"Connected to {self.address}")
-        self._connectionState = ConnectionState.CONNECTED
 
     def _on_disconnect(self, client: BleakClient) -> None:
         previous_state = self._connectionState
@@ -208,11 +230,25 @@ class CasambiClient(ABC):
             self._logger.info(f"Received disconnect callback from {self.address}")
         if previous_state == ConnectionState.AUTHENTICATED:
             self._logger.debug("Executing disconnect callback.")
-            self._disconnectedCallback()
+            try:
+                self._disconnectedCallback()
+            except Exception as err:
+                self._logger.warning("Error in disconnect callback: %s", err, exc_info=True)
 
     def _queue_callback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
         if self._callbackQueue is not None:
-            self._callbackQueue.put_nowait((handle, data))
+            try:
+                self._callbackQueue.put_nowait((handle, data))
+            except asyncio.QueueFull:
+                self._logger.warning(
+                    "Callback queue full (%d items); dropping oldest notification frame to prevent memory leak.",
+                    self._callbackQueue.qsize(),
+                )
+                with contextlib.suppress(asyncio.QueueEmpty, ValueError):
+                    self._callbackQueue.get_nowait()
+                    self._callbackQueue.task_done()
+                with contextlib.suppress(asyncio.QueueFull):
+                    self._callbackQueue.put_nowait((handle, data))
 
     def _queueCallback(self, handle: BleakGATTCharacteristic, data: bytearray) -> None:
         warnings.warn(
@@ -367,18 +403,22 @@ class CasambiClient(ABC):
 
     async def disconnect(self) -> None:
         self._logger.info("Disconnecting...")
-
-        await self._cleanup_callback_task()
-
-        if self._gattClient is not None:
-            try:
-                await self._gattClient.disconnect()
-            except BleakError:
-                self._logger.debug("Failed to disconnect BleakClient.", exc_info=True)
-
-        self._connectionState = ConnectionState.NONE
-        self._switch_decoder.reset()
-        self._logger.info("Disconnected.")
+        try:
+            await self._cleanup_callback_task()
+            if self._gattClient is not None:
+                with contextlib.suppress(Exception):
+                    await self._gattClient.stop_notify(CASA_AUTH_CHAR_UUID)
+                try:
+                    await self._gattClient.disconnect()
+                except BleakError:
+                    self._logger.debug("Failed to disconnect BleakClient.", exc_info=True)
+                except Exception as err:
+                    self._logger.warning("Unexpected error during BleakClient disconnect: %s", err)
+        finally:
+            self._callbackQueue = None
+            self._connectionState = ConnectionState.NONE
+            self._switch_decoder.reset()
+            self._logger.info("Disconnected.")
 
 
 class CasambiClientClassic(CasambiClient):
@@ -459,6 +499,9 @@ class CasambiClientClassic(CasambiClient):
 
     async def exchange_key(self, *, retries: int = 2) -> None:
         self._check_state(ConnectionState.CONNECTED)
+        if self._gattClient is None:
+            self._connectionState = ConnectionState.NONE
+            raise ConnectionStateError(ConnectionState.CONNECTED, ConnectionState.NONE)
 
         self._logger.info("Starting key exchange...")
 
@@ -481,14 +524,19 @@ class CasambiClientClassic(CasambiClient):
             self._logger.debug(f"Got {firstResp.hex()}")
 
             # Parse device info
-            (
-                self._connhash,
-                self._unit,
-                flags_lo,
-                self._mtu,
-                protocolVersion,
-                flags_high,
-            ) = struct.unpack_from(">8sBBBBB", firstResp)
+            try:
+                (
+                    self._connhash,
+                    self._unit,
+                    flags_lo,
+                    self._mtu,
+                    protocolVersion,
+                    flags_high,
+                ) = struct.unpack_from(">8sBBBBB", firstResp)
+            except struct.error as err:
+                raise ProtocolError(
+                    f"Malformed device info response in key exchange: {err}"
+                ) from err
             self._flags = flags_lo | (flags_high << 8)
 
             pv = getattr(self._network, "protocol_version", None)
@@ -632,6 +680,10 @@ class CasambiClientClassic(CasambiClient):
                 pos = statePos + stateLen
 
     async def _send_internal(self, packet: bytes) -> None:
+        if self._gattClient is None:
+            self._connectionState = ConnectionState.NONE
+            raise ConnectionStateError(ConnectionState.AUTHENTICATED, ConnectionState.NONE)
+
         sequence = int.to_bytes(self._outPacketCount & 0xFFFF, 2, "big")
         if sequence == b"\x00\x00":
             sequence = b"\x00\x01"

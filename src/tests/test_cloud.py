@@ -10,13 +10,15 @@ from casambi_classic_ble.exceptions import CasambiCloudApiException
 
 
 @pytest.fixture
-def casambi_cloud():
-    return CasambiCloud(
+async def casambi_cloud():
+    cloud = CasambiCloud(
         api_key="test_key",
         email="test@example.com",
         user_password="user_pw",
         network_password="net_pw",
     )
+    yield cloud
+    await cloud.close()
 
 
 @pytest.mark.asyncio
@@ -221,15 +223,12 @@ async def test_websocket_operations():
         mock_conn.send.assert_called()
 
         # receive_messages
-        with patch(
-            "asyncio.wait_for",
-            side_effect=[
-                json.dumps({"method": "controlUnit", "id": 2}),
-                TimeoutError(),
-            ],
-        ):
-            msgs = await ws.receive_messages(timeout=0.1)
-            assert len(msgs) == 1
+        mock_conn.recv.side_effect = [
+            json.dumps({"method": "controlUnit", "id": 2}),
+            TimeoutError(),
+        ]
+        msgs = await ws.receive_messages(timeout=0.1)
+        assert len(msgs) == 1
 
         # close
         await ws.close()

@@ -63,13 +63,16 @@ class OperationsContextEvolution(OperationsContext):
     def _getTarget(self, target: Unit | Group | Scene | None) -> int:
         targetCode = 0
         if isinstance(target, Unit):
-            assert target.deviceId <= 0xFF
+            if target.deviceId > 0xFF:
+                raise ValueError(f"Unit deviceId {target.deviceId} exceeds 0xFF.")
             targetCode = (target.deviceId << 8) | 0x01
         elif isinstance(target, Group):
-            assert target.groudId <= 0xFF
+            if target.groudId > 0xFF:
+                raise ValueError(f"Group groudId {target.groudId} exceeds 0xFF.")
             targetCode = (target.groudId << 8) | 0x02
         elif isinstance(target, Scene):
-            assert target.sceneId <= 0xFF
+            if target.sceneId > 0xFF:
+                raise ValueError(f"Scene sceneId {target.sceneId} exceeds 0xFF.")
             targetCode = (target.sceneId << 8) | 0x04
         elif target is not None:
             raise TypeError(f"Unkown target type {type(target)}")

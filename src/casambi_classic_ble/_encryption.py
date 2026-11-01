@@ -1,3 +1,4 @@
+import hmac
 import logging
 
 from cryptography.exceptions import InvalidSignature
@@ -8,12 +9,14 @@ from cryptography.hazmat.primitives.cmac import CMAC
 
 
 def _xor(data: bytes, key: bytes) -> bytes:
-    assert len(data) == len(key)
+    if len(data) != len(key):
+        raise ValueError("Data and key must be of equal length.")
     return bytes(a ^ b for a, b in zip(data, key))
 
 
 def _encHelper(cipher: Cipher, input: bytes) -> bytes:
-    assert len(input) % 16 == 0
+    if len(input) % 16 != 0:
+        raise ValueError("Input length must be a multiple of 16 bytes.")
 
     # False positive: AES-ECB block cipher is mandated by Casambi Classic BLE radio protocol
     # codeql[py/weak-cryptographic-algorithm]
@@ -107,13 +110,7 @@ class ClassicEncryptor:
         computedMac = cmacCipher.finalize()[: self._sig_len]
         pckMac = packet[: self._sig_len]
 
-        # Time-constant comparison. Need to do this ourselves because the signature is not always 16 bytes long.
-        result = True
-        for i in range(self._sig_len):
-            if computedMac[i] != pckMac[i]:
-                result = False
-
-        if not result:
+        if not hmac.compare_digest(computedMac, pckMac):
             self._logger.warning(
                 f"Signature verification failed. Computed: {computedMac.hex()}, packet: {pckMac.hex()}"
             )

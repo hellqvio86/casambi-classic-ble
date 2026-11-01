@@ -41,7 +41,8 @@ class Cache:
 
     async def _ensureCacheValid(self) -> None:
         # We assume that we already have a lock when calling this function
-        assert _cacheLock.locked()
+        if not _cacheLock.locked():
+            raise RuntimeError("Cache lock must be held before validating cache.")
 
         if await self._cachePath.exists():
             cacheVer = None

@@ -20,18 +20,36 @@ Guidelines and operational knowledge for AI coding assistants (Antigravity Agent
 casambi-classic-ble/
 ├── src/
 │   ├── casambi_classic_ble/    # Core library source code
-│   │   ├── __init__.py         # Exports CasambiDevice, CasambiScanner, CasambiCloud
-│   │   ├── constants.py        # UUIDs, opcodes, BLE service constants
-│   │   ├── device.py           # CasambiDevice implementation (BLE connect, control, state)
+│   │   ├── __init__.py         # Exports CasambiDevice, CasambiScanner, CasambiCloud, Casambi, etc.
+│   │   ├── _cache.py           # Local filesystem cache management for network topology & keys
+│   │   ├── _casambi.py         # High-level Casambi network session controller
+│   │   ├── _client.py          # BLE GATT client transport (CasambiClientClassic / Evolution)
+│   │   ├── _constants.py       # Internal protocol version bounds, UUIDs, and packet enums
+│   │   ├── _discover.py        # BLE discovery helper for Casambi service UUIDs
+│   │   ├── _encryption.py      # AES-ECB / CMAC packet encryption & signature verification
+│   │   ├── _invocation.py      # Parameterized opcode invocation helpers
+│   │   ├── _keystore.py        # Network session and legacy visitor/manager key storage
+│   │   ├── _network.py         # Network topology, unit/group/scene state, and cloud sync
+│   │   ├── _operation.py       # Operation context and target code packing
+│   │   ├── _switch.py          # Switch event packet decoder
+│   │   ├── _unit.py            # Unit, UnitState, UnitControl, Group, and Scene data models
+│   │   ├── constants.py        # Public UUIDs, opcodes, BLE service constants
+│   │   ├── device.py           # Direct CasambiDevice implementation (BLE connect, control, state)
+│   │   ├── errors.py           # Protocol, authentication, and Bluetooth error classes
+│   │   ├── exceptions.py       # Core library exception hierarchy
+│   │   ├── py.typed            # PEP 561 typing marker
 │   │   ├── scanner.py          # CasambiScanner implementation (discovery via Bleak)
-│   │   ├── exceptions.py       # Library-specific exceptions
 │   │   └── cloud/              # Casambi Cloud REST & WebSocket bridge
 │   │       ├── __init__.py     # CasambiCloud context manager & interface
 │   │       ├── api.py          # REST API sessions & endpoints
 │   │       └── websocket.py    # Real-time WebSocket connection to Casambi Bridge
 │   └── tests/                  # Pytest unit tests (mocked BLE and HTTP/WS)
+├── docs/
+│   └── protocol.md             # Casambi Classic BLE wire protocol reference
 ├── examples/                   # Example usage scripts (scanning, simple connection)
 ├── .github/
+│   ├── codeql/
+│   │   └── codeql-config.yml   # CodeQL query filter configuration
 │   ├── workflows/
 │   │   └── ci.yml              # CI/CD pipeline (lint, test matrix, draft release, publish)
 │   └── dependabot.yml          # Dependabot configuration (2-day cooldown, hellqvio86 assignee)
@@ -87,6 +105,7 @@ Write clean, idiomatic, and modern Python (Python `>= 3.12`). Code should look a
 4. **Error Handling & Explicit Failures:**
    - Raise explicit, domain-specific exceptions from [`casambi_classic_ble.exceptions`](src/casambi_classic_ble/exceptions.py) (`CasambiException`, `CasambiConnectionError`, `CasambiDeviceError`) rather than returning ambiguous sentinel values (`None`, `False`, `-1`).
    - **Never use bare `except:` clauses.** Always catch explicit exception types (e.g., `except (BleakError, asyncio.TimeoutError) as err:`).
+   - **Always name exception variables `err`** (`except ... as err:`). Never use `e` or `exc`.
    - Preserve error chaining with `raise NewException(...) from err`.
 
 5. **Mandatory Named (Keyword) Arguments:**
@@ -166,8 +185,8 @@ Keep these hardware realities in mind when working on the protocol layer:
 1. **Reversed Hardware MAC in Advertisements:** Classic Casambi nodes broadcast manufacturer beacons (`0x03C3`) with the device MAC address in reversed byte order (`[::-1]`).
 2. **Strict Little-Endian Packing:** Word-level payloads (e.g. 16-bit Kelvin color temperatures) must be packed using little-endian without compiler alignment padding (`struct.pack("<BH", unit_id, kelvin)`).
 3. **Single Active BLE Connection:** Casambi nodes accept only one active GATT connection at a time. Simultaneous connections from mobile apps or other clients will cause connection timeouts.
-4. **Mandatory Write Serialization:** All GATT command writes must be serialized via `asyncio.Lock` (`_write_lock`) to prevent chunk interleaving.
-5. **State Duplicate Suppression:** Passive advertisement frames repeat continuously (several times per second); state subscribers must deduplicate identical consecutive frames.
+4. **Mandatory Per-Device Write Serialization:** All GATT command writes and handshakes must be serialized via a per-device `asyncio.Lock` (`_write_lock` on `CasambiDevice`, `_activityLock` on `CasambiClient`) using `async with` to prevent chunk interleaving.
+5. **State Duplicate Suppression:** Passive advertisement frames repeat continuously (several times per second); state subscribers must deduplicate identical consecutive frames per unit/device while isolating subscriber exceptions.
 
 ---
 

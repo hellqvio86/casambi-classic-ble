@@ -30,10 +30,10 @@ async def discover() -> list[BLEDevice]:
             )
         else:
             devices_and_advertisements = await BleakScanner.discover(return_adv=True)
-    except BleakDBusError as e:
-        raise BluetoothError(e.dbus_error, e.dbus_error_details) from e
-    except BleakError as e:
-        raise BluetoothError from e
+    except BleakDBusError as err:
+        raise BluetoothError(err.dbus_error, err.dbus_error_details) from err
+    except BleakError as err:
+        raise BluetoothError from err
 
     # Filter out all devices that aren't primary communication endpoints for casambi networks
     discovered = []

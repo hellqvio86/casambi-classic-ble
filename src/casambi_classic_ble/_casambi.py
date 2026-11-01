@@ -209,7 +209,7 @@ class Casambi:
             await self._casaClient.connect()
             await self._casaClient.exchangeKey()
             await self._casaClient.authenticate()
-        except:
+        except BaseException:
             await self._casaClient.disconnect()
             raise
 
@@ -506,13 +506,13 @@ class Casambi:
 
         try:
             await self._casaClient.send(opPkt)
-        except ConnectionStateError as exc:
-            if exc.got == ConnectionState.NONE:
+        except ConnectionStateError as err:
+            if err.got == ConnectionState.NONE:
                 self._logger.info("Trying to reconnect broken connection once.")
                 await self.reconnect(self._casaClient._address_or_devive)
                 await self._casaClient.send(opPkt)
             else:
-                raise exc
+                raise err
 
     def _dataCallback(
         self, packetType: IncomingPacketType, data: dict[str, Any] | SwitchEvent

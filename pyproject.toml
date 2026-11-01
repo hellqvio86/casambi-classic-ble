@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "casambi-classic-ble"
-version = "0.3.3"
+version = "0.3.4"
 description = "Bluetooth Low Energy library for Casambi classic firmware lighting control (fork of casambi-bt by Lukas Kempf)"
 authors = [
     {name = "Lukas Kempf (Original casambi-bt author)"},
@@ -29,7 +29,7 @@ dependencies = [
     "bleak>=0.21.0",
     "aiohttp>=3.14.4",
     "multidict>=6.7.2",
-    "websockets>=12.0",
+    "websockets>=13.0",
     "cryptography>=40.0.0",
     "httpx>=0.25",
     "bleak_retry_connector>=4.6.0",
@@ -39,7 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.3",
-    "pytest-asyncio>=0.21.0",
+    "pytest-asyncio>=0.24.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.8.0",
     "mypy>=1.5.0",
@@ -87,6 +87,13 @@ ignore = [
 testpaths = ["src/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "error",
+    # pytest-cov emits this when conftest imports the package before coverage collector starts
+    "ignore::coverage.exceptions.CoverageWarning",
+    # Allow running the test suite under PYTHONOPTIMIZE=1 (python -O) per S-004 / A-006
+    "ignore:assertions not in test modules or plugins:pytest.PytestConfigWarning",
+]
 addopts = "-v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=xml:coverage.xml"
 
 [tool.mypy]

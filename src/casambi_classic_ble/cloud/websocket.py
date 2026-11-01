@@ -49,8 +49,8 @@ class CasambiCloudWebsocket:
             if data.get("wireStatus") == "openWireSucceed":
                 self.connected = True
                 return True
-        except Exception as e:
-            _LOGGER.error(f"Failed to open websocket: {e}")
+        except Exception as err:
+            _LOGGER.error(f"Failed to open websocket: {err}")
             await self.web_sock.close()
             self.web_sock = None
 

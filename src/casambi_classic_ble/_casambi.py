@@ -9,7 +9,7 @@ from typing import Any, cast
 from bleak.backends.device import BLEDevice
 from httpx import AsyncClient, RequestError
 
-from ._cache import Cache
+from ._cache import Cache, has_cached_network_sync, normalize_cache_uuid
 from ._client import (
     CasambiClient,
     CasambiClientClassic,
@@ -1141,7 +1141,8 @@ class Casambi:
             )
         if target_handler is None:
             raise ValueError("handler is required")
-        self._unitChangedCallbacks.append(target_handler)
+        if target_handler not in self._unitChangedCallbacks:
+            self._unitChangedCallbacks.append(target_handler)
         self._logger.debug(f"Registered unit changed handler {target_handler}")
 
     def registerUnitChangedHandler(
@@ -1202,7 +1203,8 @@ class Casambi:
             )
         if target_handler is None:
             raise ValueError("handler is required")
-        self._switchEventCallbacks.append(target_handler)
+        if target_handler not in self._switchEventCallbacks:
+            self._switchEventCallbacks.append(target_handler)
         self._logger.debug(f"Registered switch event handler {target_handler}")
 
     def registerSwitchEventHandler(
@@ -1266,7 +1268,8 @@ class Casambi:
             )
         if target_cb is None:
             raise ValueError("callback is required")
-        self._disconnectCallbacks.append(target_cb)
+        if target_cb not in self._disconnectCallbacks:
+            self._disconnectCallbacks.append(target_cb)
         self._logger.debug(f"Registered disconnect callback {target_cb}")
 
     def registerDisconnectCallback(
@@ -1311,12 +1314,22 @@ class Casambi:
         )
         self.unregister_disconnect_callback(*args, callback=callback)
 
-    async def invalidate_cache(self, *args: Any, uuid: str | None = None) -> None:
+    async def invalidate_cache(
+        self,
+        *args: Any,
+        uuid: str | None = None,
+        address: str | None = None,
+    ) -> None:
         """Invalidates the cache for a network.
 
-        :param uuid: The address of the network.
+        :param uuid: The address or UUID of the network.
+        :param address: Alias for ``uuid``.
         """
-        target_uuid = args[0] if len(args) > 0 else uuid
+        target_uuid = (
+            address
+            if address is not None
+            else (uuid if uuid is not None else (args[0] if len(args) > 0 else None))
+        )
         if args:
             warnings.warn(
                 "Positional arguments are deprecated; use invalidate_cache(uuid=...) instead.",
@@ -1326,10 +1339,12 @@ class Casambi:
         if target_uuid is None:
             raise ValueError("uuid is required")
 
+        norm_uuid = normalize_cache_uuid(target_uuid)
+
         # We can't use our own cache here since the invalidation happens
         # before the first connection attempt.
         tempCache = Cache(cache_path=self._cache._cache_path)
-        await tempCache.set_uuid(uuid=target_uuid)
+        await tempCache.set_uuid(uuid=norm_uuid)
         await tempCache.invalidate_cache()
 
     async def invalidateCache(self, *args: Any, uuid: str | None = None) -> None:
@@ -1340,6 +1355,34 @@ class Casambi:
             stacklevel=2,
         )
         await self.invalidate_cache(*args, uuid=uuid)
+
+    async def has_cached_network(self, *, address: str) -> bool:
+        """Return True if a cached network configuration exists for ``address``."""
+        return await self._cache.has_cached_network(uuid=address)
+
+    @staticmethod
+    def check_cached_network(*, cache_path: Path | None = None, address: str) -> bool:
+        """Synchronously check if a cached network configuration exists for ``address``."""
+        return has_cached_network_sync(cache_path=cache_path, address=address)
+
+    @staticmethod
+    async def async_has_cached_network(*, cache_path: Path | None = None, address: str) -> bool:
+        """Asynchronously check if a cached network configuration exists for ``address``."""
+        cache = Cache(cache_path=cache_path)
+        return await cache.has_cached_network(uuid=address)
+
+    async def clear_cached_session(self, *, address: str) -> None:
+        """Clear cached authentication session token for ``address`` without deleting unit types."""
+        norm_uuid = normalize_cache_uuid(address)
+        await self._cache.clear_cached_session(uuid=norm_uuid)
+        if self._casaNetwork is not None and self._casaNetwork._uuid == norm_uuid:
+            self._casaNetwork._session = None
+
+    @staticmethod
+    async def async_clear_cached_session(*, cache_path: Path | None = None, address: str) -> None:
+        """Asynchronously clear cached authentication session token for ``address``."""
+        cache = Cache(cache_path=cache_path)
+        await cache.clear_cached_session(uuid=address)
 
     def _disconnect_callback(self) -> None:
         # Mark all units as offline on disconnect.

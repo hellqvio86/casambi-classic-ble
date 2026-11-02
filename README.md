@@ -187,37 +187,44 @@ asyncio.run(main())
 
 ---
 
-## Hardware Compatibility & Limitations
+## Operational Limitations & Hardware Compatibility
 
-- **Supported Hardware (Verified in Production):**
-  - **Vadsbo LD220WCM** (Trailing-edge phase-cut dimmer)
-  - **Vadsbo LD220WCM_onoff** (On/off relay module)
-  - **Casambi CBU-PWM4 RGBW** (4-channel PWM dimmer)
-  - **AIMOTION GLOW** (Pendant luminaire)
-  - *All running Casambi Classic firmware (v26.x or earlier).*
-- **Command Variants & Hardware Evidence:** See the [Command Variant & Hardware Compatibility Matrix](docs/protocol.md#3-command-variant--hardware-compatibility-matrix) in `docs/protocol.md` for exact opcode payloads (1-byte vs 2-byte unit IDs), verified models, and capture provenance.
-- **Concurrent Connections:** Casambi mesh nodes typically allow only **one active BLE connection** at a time. If the official Casambi mobile app is actively connected to a node, connection attempts from other clients will be rejected until the app disconnects.
-- **Protocol Details:** See [docs/protocol.md](docs/protocol.md) for characteristic UUIDs, opcodes, signed session packets, and Wireshark capture guides.
-
----
-
-## Troubleshooting
-
-### Connection Times Out While Casambi App Is Open
-Casambi mesh nodes strictly allow only **one active Bluetooth Low Energy GATT connection** at a time. If the official Casambi mobile app (iOS or Android) is open in the foreground or background on a smartphone or tablet in range, it will hold the GATT connection to the node. Any connection attempt from `casambi-classic-ble` or Home Assistant will time out with a `CasambiConnectionError`.
-
-**Solution:** Force-close or background-disconnect the official Casambi mobile app before connecting with `casambi-classic-ble`.
+- **Reverse-Engineered Wire Protocol:** Casambi does not publish an official specification for the Classic BLE GATT protocol. This library implements protocol behavior observed and verified via packet captures and production fixtures.
+- **Tested Hardware & Firmware Scope:**
+  - **Vadsbo LD220WCM** (Trailing-edge phase-cut dimmer, Classic FW `26.x`)
+  - **Vadsbo LD220WCM_onoff** (On/off relay module, Classic FW `26.x`)
+  - **Casambi CBU-PWM4 RGBW** (4-channel PWM dimmer, Classic FW `26.x`)
+  - **AIMOTION GLOW** (Pendant luminaire, Classic FW `26.x`)
+  - **EnOcean PTM215B** (4-button kinetic BLE switch, Classic FW `20.x`–`26.x`)
+  - *Supported protocol versions:* Classic firmware protocol versions `5`–`9` (and legacy `< 5` via direct GATT). Evolution firmware (`protocolVersion >= 10`) is explicitly rejected; use upstream [`casambi-bt`](https://github.com/lkempf/casambi-bt) for Evolution networks.
+- **Single Active BLE Connection Limit:** Casambi mesh nodes accept only **one active Bluetooth Low Energy GATT connection** at a time. If the official Casambi mobile app (iOS or Android) or another BLE client is actively connected to the gateway node, connection attempts from `casambi-classic-ble` will time out or be rejected until the app disconnects.
+- **Local BLE Control vs. Cloud Topology Sync:**
+  - **`CasambiDevice` (Direct BLE):** Operates 100% locally over BLE with zero cloud or cache dependencies, targeting unit IDs directly.
+  - **`Casambi` (Full Network Session):** Uses BLE GATT for real-time control and state notifications, and fetches network topology (unit names, groups, scenes, fixture profiles, and Visitor/Manager signing keys) from the Casambi API on initial login.
+- **What "Offline Mode" (`force_offline=True`) Requires:**
+  - Offline mode on `Casambi.connect(..., force_offline=True)` requires a **previously populated local cache** for that network UUID (`casambi_network_id.txt`, `<network_id>.json` topology, `casambi_lookup.json` keys, and `casambi_types.json` unit control definitions).
+  - First-time network discovery, password changes (re-authentication), or newly added fixtures/groups/scenes cannot be discovered offline and require an online sync.
+- **Protocol Details & Provenance:** See [docs/protocol.md](docs/protocol.md) for the complete [Command Variant & Hardware Compatibility Matrix](docs/protocol.md#3-command-variant--hardware-compatibility-matrix), characteristic UUIDs, signed session packets, and Wireshark capture guides.
 
 ---
 
-## Troubleshooting
+## Safe Troubleshooting & Diagnostics
 
-- **Linux / BlueZ Permissions:** Non-root users may need permission to access Bluetooth adapters via D-Bus:
+### 1. Connection Times Out While Casambi App Is Open
+Because Casambi nodes only allow a single active GATT connection, force-close or background-disconnect the official Casambi mobile app on any nearby phones or tablets before connecting with `casambi-classic-ble` or Home Assistant.
+
+### 2. Linux / BlueZ Adapter Requirements
+- **BlueZ Version:** BlueZ `>= 5.64` is strongly recommended for reliable BLE GATT operation and notification cleanup.
+- **D-Bus Permissions:** Non-root users on Linux may need `bluetooth` group membership:
   ```bash
   sudo usermod -a -G bluetooth $USER
   ```
-- **BlueZ Version:** BlueZ `>= 5.64` is strongly recommended for reliable BLE GATT operation and connection stability.
-- **Connection Drops / Timeouts:** If connecting directly, ensure the target node is within adequate RF range and no mobile app has an active session open. Using [`casambi-classic-bt-hass`](https://github.com/hellqvio86/casambi-classic-bt-hass) leverages Home Assistant's proxying Bluetooth architecture automatically.
+- **RF Range & Proxies:** Ensure the host Bluetooth adapter (or ESPHome Bluetooth proxy when using [`casambi-classic-bt-hass`](https://github.com/hellqvio86/casambi-classic-bt-hass)) has stable RF signal (`RSSI > -80 dBm`) to at least one mesh node.
+
+### 3. Sharing Logs Safely (Redacting Secrets & Identifiers)
+- **Never publish plaintext network passwords, AES keys (`visitorKey` / `managerKey`), session tokens, raw unredacted packet captures (`.pcap` / `.btsnoop`), or real Bluetooth MAC addresses in public GitHub issues.**
+- At standard `INFO` / `WARNING` / `ERROR` log levels, `casambi-classic-ble` automatically masks MAC addresses (`AA:**:**:**:**:FF`) and redacts credentials via `mask_mac` and `mask_sensitive_data`.
+- When `logging.DEBUG` is enabled for local troubleshooting, full MAC addresses and debug payloads are logged to assist diagnosis—always sanitize (`AA:BB:CC:DD:EE:FF`, `<REDACTED>`) before sharing debug snippets externally.
 
 ---
 

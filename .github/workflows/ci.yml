@@ -65,6 +65,30 @@ jobs:
       - name: Run mypy type check
         run: uv run mypy src/
 
+      - name: Build and verify package distributions
+        run: |
+          rm -rf dist/
+          uv build
+          SDIST=$(ls dist/*.tar.gz)
+          WHEEL=$(ls dist/*.whl)
+          echo "Verifying sdist ($SDIST) and wheel ($WHEEL)..."
+          tar -ztf "$SDIST" | grep -q "docs/protocol.md"
+          tar -ztf "$SDIST" | grep -q "CHANGELOG.md"
+          tar -ztf "$SDIST" | grep -q "src/tests/fixtures/golden_vectors.json"
+          tar -ztf "$SDIST" | grep -q "src/casambi_classic_ble/py.typed"
+          if tar -ztf "$SDIST" | grep -E '\.(env|pcap|pcapng|btsnoop)$|casambi\.yaml|casambi-classic-ble-store'; then
+            echo "Error: Forbidden file found in sdist!"
+            exit 1
+          fi
+          unzip -l "$WHEEL" | grep -q "casambi_classic_ble/py.typed"
+          if unzip -l "$WHEEL" | grep -E '(^|[[:space:]])tests/|\.(env|pcap|pcapng|btsnoop)$'; then
+            echo "Error: Unexpected test or secret files found in wheel!"
+            exit 1
+          fi
+          uv venv --python 3.12 /tmp/dist-verify-env
+          uv pip install --python /tmp/dist-verify-env/bin/python "$WHEEL"
+          /tmp/dist-verify-env/bin/python -c "import casambi_classic_ble; assert casambi_classic_ble.__version__, 'Missing version'; assert hasattr(casambi_classic_ble.Casambi, 'async_has_cached_network')"
+
   test:
     name: Test (Python ${{ matrix.python-version }}, ${{ matrix.resolution }})
     runs-on: ubuntu-latest

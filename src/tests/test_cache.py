@@ -187,3 +187,72 @@ async def test_cache_lock_released_on_cancellation(tmp_path: pathlib.Path):
     # Lock must be free for next caller
     async with cache as cache_dir:
         assert await cache_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_cache_has_cached_network_and_clear_session(tmp_path: pathlib.Path):
+    from casambi_classic_ble._cache import has_cached_network_sync
+    from casambi_classic_ble._constants import (
+        LEGACY_NETWORK_ID_CACHE_FILE,
+        LEGACY_SESSION_CACHE_FILE,
+        NETWORK_ID_CACHE_FILE,
+        SESSION_CACHE_FILE,
+        TYPES_CACHE_FILE,
+    )
+
+    cache = Cache(cache_path=tmp_path)
+    with pytest.raises(ValueError, match="UUID not set"):
+        await cache.has_cached_network()
+    with pytest.raises(ValueError, match="UUID not set"):
+        await cache.clear_cached_session()
+
+    # Non-existent base directory
+    assert not has_cached_network_sync(
+        cache_path=tmp_path / "does_not_exist",
+        address="AA:BB:CC:DD:EE:FF",
+    )
+
+    # Clear session on non-existent base directory or entry is a safe no-op
+    non_existent_cache = Cache(cache_path=tmp_path / "missing_base")
+    await non_existent_cache.clear_cached_session(uuid="AA:BB:CC:DD:EE:FF")
+    await cache.clear_cached_session(uuid="AA:BB:CC:DD:EE:FF")
+
+    await cache.set_uuid(uuid="aabbccddeeff")
+    assert not await cache.has_cached_network()
+
+    async with cache as cache_dir:
+        # Empty network ID file does not count as valid cached network
+        net_id_file = cache_dir / NETWORK_ID_CACHE_FILE
+        await net_id_file.write_text("   ")
+        assert not has_cached_network_sync(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+
+        # Valid network ID file
+        await net_id_file.write_text("net-123")
+        session_file = cache_dir / SESSION_CACHE_FILE
+        legacy_session_file = cache_dir / LEGACY_SESSION_CACHE_FILE
+        types_file = cache_dir / TYPES_CACHE_FILE
+        await session_file.write_text('{"session": "tok"}')
+        await legacy_session_file.write_text("legacy")
+        await types_file.write_text("{}")
+
+    assert await cache.has_cached_network()
+    assert await cache.has_cached_network(uuid="AA:BB:CC:DD:EE:FF")
+    assert has_cached_network_sync(cache_path=tmp_path, address="AA:BB:CC:DD:EE:FF")
+
+    # Clear cached session removes session files while preserving network ID and types
+    await cache.clear_cached_session(uuid="AA:BB:CC:DD:EE:FF")
+    assert not (tmp_path / "aabbccddeeff" / SESSION_CACHE_FILE).exists()
+    assert not (tmp_path / "aabbccddeeff" / LEGACY_SESSION_CACHE_FILE).exists()
+    assert (tmp_path / "aabbccddeeff" / TYPES_CACHE_FILE).exists()
+    assert await cache.has_cached_network()
+
+    # Legacy networkid file is also recognized
+    (tmp_path / "aabbccddeeff" / NETWORK_ID_CACHE_FILE).unlink()
+    (tmp_path / "aabbccddeeff" / LEGACY_NETWORK_ID_CACHE_FILE).write_text("legacy-net-123")
+    assert await cache.has_cached_network()
+
+    # Mismatched or corrupt .cachever returns False
+    (tmp_path / ".cachever").write_text("1")
+    assert not await cache.has_cached_network()
+    (tmp_path / ".cachever").write_text("not-an-int")
+    assert not await cache.has_cached_network()

@@ -9,6 +9,12 @@ from typing import Any, Final
 
 from anyio import Path
 
+from ._constants import (
+    LEGACY_NETWORK_ID_CACHE_FILE,
+    LEGACY_SESSION_CACHE_FILE,
+    NETWORK_ID_CACHE_FILE,
+    SESSION_CACHE_FILE,
+)
 from .exceptions import CasambiSecurityError
 from .utils import (
     async_atomic_write_file,
@@ -35,6 +41,55 @@ def _validate_cache_uuid(uuid: str) -> str:
             f"Invalid cache UUID '{cleaned}': path traversal characters are forbidden."
         )
     return cleaned
+
+
+def normalize_cache_uuid(address_or_uuid: str) -> str:
+    """Normalize a Bluetooth MAC address or UUID into a validated lowercase cache key."""
+    cleaned = _validate_cache_uuid(address_or_uuid)
+    normalized = cleaned.replace(":", "").lower()
+    return _validate_cache_uuid(normalized)
+
+
+def has_cached_network_sync(
+    *,
+    cache_path: Path | pathlib.Path | None = None,
+    address: str,
+) -> bool:
+    """Check synchronously whether a valid network ID cache entry exists for ``address``."""
+    base = (
+        pathlib.Path(cache_path)
+        if cache_path is not None
+        else pathlib.Path(get_default_cache_path())
+    )
+    validate_safe_path(base)
+    if not base.exists():
+        return False
+
+    norm_uuid = normalize_cache_uuid(address)
+    ver_file = base / ".cachever"
+    if ver_file.exists():
+        validate_safe_path(ver_file, base_path=base)
+        try:
+            if int(ver_file.read_text(encoding="utf-8").strip()) != CACHE_VERSION:
+                return False
+        except (ValueError, OSError):
+            return False
+
+    net_dir = base / norm_uuid
+    if not net_dir.exists():
+        return False
+    validate_safe_path(net_dir, base_path=base)
+
+    for filename in (NETWORK_ID_CACHE_FILE, LEGACY_NETWORK_ID_CACHE_FILE):
+        candidate = net_dir / filename
+        if candidate.exists():
+            validate_safe_path(candidate, base_path=net_dir)
+            try:
+                if candidate.read_text(encoding="utf-8").strip():
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def get_default_cache_path() -> Path:
@@ -221,3 +276,39 @@ class Cache:
             stacklevel=2,
         )
         await self.invalidate_cache()
+
+    async def has_cached_network(self, *, uuid: str | None = None) -> bool:
+        """Return True if cached network metadata exists for ``uuid`` (or the active UUID)."""
+        target_uuid = uuid if uuid is not None else self._uuid
+        if target_uuid is None:
+            raise ValueError("UUID not set.")
+        norm_uuid = normalize_cache_uuid(target_uuid)
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None,
+                lambda: has_cached_network_sync(
+                    cache_path=self._cachePath,
+                    address=norm_uuid,
+                ),
+            )
+
+    async def clear_cached_session(self, *, uuid: str | None = None) -> None:
+        """Delete cached session files for ``uuid`` (or the active UUID) without wiping unit types."""
+        target_uuid = uuid if uuid is not None else self._uuid
+        if target_uuid is None:
+            raise ValueError("UUID not set.")
+        norm_uuid = normalize_cache_uuid(target_uuid)
+        async with self._lock:
+            validate_safe_path(self._cachePath)
+            if not await self._cachePath.exists():
+                return
+            target_entry = self._cachePath / norm_uuid
+            validate_safe_path(target_entry, base_path=self._cachePath)
+            if not await target_entry.exists():
+                return
+            for session_filename in (SESSION_CACHE_FILE, LEGACY_SESSION_CACHE_FILE):
+                session_file = target_entry / session_filename
+                if await session_file.exists():
+                    validate_safe_path(session_file, base_path=target_entry)
+                    await session_file.unlink()

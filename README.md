@@ -250,3 +250,9 @@ See [ATTRIBUTION.md](ATTRIBUTION.md) for detailed attribution and fork history.
 ## License
 
 This project is licensed under the Apache License, Version 2.0 — see the [LICENSE](LICENSE) file for the full text.
+
+<p align="right">
+  <a href="https://www.buymeacoffee.com/olofhellqvc">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="48">
+  </a>
+</p>

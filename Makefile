@@ -1,4 +1,4 @@
-.PHONY: help setup venv test lint format coverage clean all hooks build publish secrets trivy audit typecheck
+.PHONY: help setup venv test lint format coverage clean all hooks build publish secrets trivy audit typecheck renovate renovate-summary
 
 help:
 	@echo "Available commands:"
@@ -87,3 +87,9 @@ clean:
 
 all: secrets trivy audit lint test
 	@echo "All checks passed successfully!"
+
+renovate:
+	@./bin/renovate/run.sh
+
+renovate-summary:
+	@./bin/renovate/run.sh --summary

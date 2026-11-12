@@ -49,7 +49,8 @@ venv:
 
 test:
 	@echo "Running pytest with coverage..."
-	uv run pytest src/tests/ -v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing
+	uv run pytest src/tests/ -v --tb=short --cov=casambi_classic_ble --cov-branch --cov-fail-under=80 --cov-report=term-missing --cov-report=json
+	uv run python .github/scripts/generate_coverage_badge.py
 
 typecheck:
 	@echo "Running mypy typecheck..."

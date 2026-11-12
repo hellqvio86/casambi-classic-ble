@@ -3,6 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/casambi-classic-ble.svg)](https://pypi.org/project/casambi-classic-ble/)
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Coverage](coverage.svg)](https://github.com/hellqvio86/casambi-classic-ble/actions/workflows/ci.yml)
 [![Firmware](https://img.shields.io/badge/firmware-Classic%20Casambi-orange.svg)](https://casambi.com)
 [![Fork](https://img.shields.io/badge/fork-Casambi%20Classic%20BLE-orange.svg)](https://github.com/hellqvio86/casambi-classic-ble)
 
@@ -83,6 +84,7 @@ pip install -e .
 import asyncio
 from casambi_classic_ble import CasambiConnectionError, CasambiDevice
 
+
 async def main():
     # Target your node by Bluetooth address (or pass a Bleak BLEDevice from Home Assistant)
     light = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
@@ -109,6 +111,7 @@ async def main():
     finally:
         await light.disconnect()
 
+
 asyncio.run(main())
 ```
 
@@ -120,6 +123,7 @@ asyncio.run(main())
 ```python
 import asyncio
 from casambi_classic_ble import CasambiConnectionError, CasambiDevice, CasambiScanner
+
 
 async def main():
     scanner = CasambiScanner()
@@ -136,6 +140,7 @@ async def main():
         finally:
             await target.disconnect()
 
+
 asyncio.run(main())
 ```
 
@@ -146,12 +151,15 @@ from casambi_classic_ble import CasambiDevice
 
 device = CasambiDevice(address="AA:BB:CC:DD:EE:FF")
 
+
 def on_state_change(state: dict):
     # Decoded passive broadcast state dictionary containing verified status
     print(f"State updated: {'ON' if state['on'] else 'OFF'} ({state['level_percent']}%)")
 
+
 # Register subscription callback (automatically deduplicates identical frames)
 unsubscribe = device.register_state_callback(callback=on_state_change)
+
 
 # Feed raw manufacturer data (0x03C3) received from Bleak or Home Assistant
 def on_advertisement(mfr_data: bytes):
@@ -165,6 +173,7 @@ Install with cloud extras: `pip install casambi-classic-ble[cloud]`
 ```python
 import asyncio
 from casambi_classic_ble import CasambiCloud
+
 
 async def main():
     # Required credentials:
@@ -181,6 +190,7 @@ async def main():
         await cloud.create_network_session()
         net_info = await cloud.get_network_information()
         print("Discovered cloud network information:", net_info)
+
 
 asyncio.run(main())
 ```

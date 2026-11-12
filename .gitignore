@@ -22,6 +22,7 @@ ENV/
 .coverage
 .coverage.*
 coverage.xml
+coverage.json
 htmlcov/
 
 # Local configuration, secrets, logs, and artifacts
